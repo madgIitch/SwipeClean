@@ -1,6 +1,9 @@
 package com.example.swipeclean
 
 import android.content.IntentSender
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
@@ -17,57 +20,99 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import coil.size.Size
+import com.madglitch.swipeclean.GalleryViewModel
 import kotlinx.coroutines.launch
-import kotlin.math.abs
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CardScreen(
     vm: GalleryViewModel,
-    onNeedUserConfirm: (IntentSender) -> Unit
+    // cantidad para confirmar en lote (un único diálogo del sistema cada N marcados)
+    autoBatchSize: Int = 5
 ) {
     val items by vm.items.collectAsState()
     val index by vm.index.collectAsState()
     val context = LocalContext.current
-    val snackbar = remember { SnackbarHostState() }
+
+    val snackbarHost = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+
+    // Launcher para ejecutar el IntentSender (solo en API 30+)
+    val intentSenderLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { /* opcional: comprobar resultCode */ }
+
+    // Helper: confirma el lote si toca (usa compat para API<30)
+    fun maybeConfirmTrashBatch() {
+        if (vm.pendingCount() > 0 &&
+            (vm.pendingCount() >= autoBatchSize || index >= items.size)
+        ) {
+            vm.confirmTrashCompat(context) { sender: IntentSender ->
+                intentSenderLauncher.launch(
+                    IntentSenderRequest.Builder(sender).build()
+                )
+            }
+        }
+    }
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("SwipeClean") }) },
-        snackbarHost = { SnackbarHost(snackbar) },
+        snackbarHost = { SnackbarHost(snackbarHost) },
         bottomBar = {
             Row(
-                Modifier.fillMaxWidth().padding(16.dp),
+                Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                OutlinedButton(onClick = {
-                    vm.trash(context, onNeedUserConfirm)
-                    scope.launch {
-                        val res = snackbar.showSnackbar("Enviada a papelera", "Deshacer")
-                        if (res == SnackbarResult.ActionPerformed) vm.undo()
+                OutlinedButton(
+                    onClick = {
+                        vm.markForTrash()
+                        scope.launch {
+                            val res = snackbarHost.showSnackbar(
+                                message = "Enviada a papelera",
+                                actionLabel = "Deshacer",
+                                withDismissAction = true
+                            )
+                            if (res == SnackbarResult.ActionPerformed) vm.undo()
+                        }
+                        maybeConfirmTrashBatch()
                     }
-                }) { Text("Borrar") }
+                ) { Text("Borrar") }
 
                 OutlinedButton(onClick = { vm.keep() }) { Text("Guardar") }
             }
         }
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .padding(padding)
+        ) {
             val media = items.getOrNull(index)
+
             if (media == null) {
+                // Al llegar al final, si quedan pendientes, confirma el lote.
+                LaunchedEffect(Unit) { maybeConfirmTrashBatch() }
                 Text(
-                    "No hay más elementos",
+                    text = "No hay más elementos",
                     modifier = Modifier.align(Alignment.Center)
                 )
             } else {
                 SwipeableMediaCard(
                     item = media,
                     onSwipedLeft = {
-                        vm.trash(context, onNeedUserConfirm)
+                        vm.markForTrash()
                         scope.launch {
-                            val r = snackbar.showSnackbar("Enviada a papelera", "Deshacer")
-                            if (r == SnackbarResult.ActionPerformed) vm.undo()
+                            val res = snackbarHost.showSnackbar(
+                                message = "Enviada a papelera",
+                                actionLabel = "Deshacer",
+                                withDismissAction = true
+                            )
+                            if (res == SnackbarResult.ActionPerformed) vm.undo()
                         }
+                        maybeConfirmTrashBatch()
                     },
                     onSwipedRight = { vm.keep() }
                 )
@@ -90,7 +135,10 @@ fun SwipeableMediaCard(
         Modifier
             .fillMaxSize()
             .padding(24.dp)
-            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(24.dp))
+            .background(
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                shape = RoundedCornerShape(24.dp)
+            )
             .pointerInput(Unit) {
                 detectDragGestures(
                     onDragEnd = {
@@ -100,28 +148,28 @@ fun SwipeableMediaCard(
                             else -> offsetX = 0f
                         }
                     }
-                ) { change, drag -> change.consume(); offsetX += drag.x }
+                ) { change, drag ->
+                    change.consume() // marcar el evento como consumido
+                    offsetX += drag.x
+                }
             }
             .graphicsLayer {
                 translationX = offsetX
                 rotationZ = (offsetX / 40f).coerceIn(-12f, 12f)
             }
             .clip(RoundedCornerShape(24.dp))
-            .background(MaterialTheme.colorScheme.surface) // fondo neutro
+            .background(MaterialTheme.colorScheme.surface)
     ) {
-        // 🚩 Clave: pedir tamaño ORIGINAL + no recortar
+        // Mostrar a resolución original y sin recorte
         AsyncImage(
             model = ImageRequest.Builder(context)
                 .data(item.uri)
-                .size(coil.size.Size.ORIGINAL) // <- evita que Coil reduzca
+                .size(Size.ORIGINAL)
                 .crossfade(true)
                 .build(),
             contentDescription = null,
-            contentScale = ContentScale.Fit,   // <- sin recorte
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(0.dp)
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.fillMaxSize()
         )
     }
 }
-

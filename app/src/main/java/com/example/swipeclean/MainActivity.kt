@@ -10,6 +10,7 @@ import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.material3.*
+import com.madglitch.swipeclean.GalleryViewModel
 import com.tuempresa.swipeclean.MediaFilter
 
 class MainActivity : ComponentActivity() {
@@ -35,10 +36,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             MaterialTheme {
-                CardScreen(
-                    vm = vm,
-                    onNeedUserConfirm = { sender -> launchIntentSender(sender) }
-                )
+                CardScreen(vm = vm)
             }
         }
     }
