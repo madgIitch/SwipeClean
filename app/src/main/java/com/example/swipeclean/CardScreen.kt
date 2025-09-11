@@ -1,23 +1,15 @@
 package com.example.swipeclean
 
 import android.content.Intent
-import android.content.IntentSender
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
-import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -28,9 +20,20 @@ import coil.size.Size
 import com.example.swipeclean.ui.components.CounterPill
 import com.example.swipeclean.ui.components.RoundActionIcon
 import com.madglitch.swipeclean.GalleryViewModel
+import android.net.Uri
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 
+// Claves para los extras
+private const val EXTRA_PENDING_URIS   = "PENDING_URIS"
+private const val EXTRA_STAGED_URIS    = "STAGED_URIS"
+private const val EXTRA_CONFIRMED_URIS = "CONFIRMED_URIS"
 
-@RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
+@RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE) // quita/rebaja si necesitas minSdk menor
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CardScreen(vm: GalleryViewModel) {
@@ -42,41 +45,56 @@ fun CardScreen(vm: GalleryViewModel) {
     val shownIndex = if (total > 0) (index % total) + 1 else 0
     val isEmpty = total == 0
 
+    // Launcher para abrir ReviewActivity y recoger respuesta
+    val reviewLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val data = result.data ?: return@rememberLauncherForActivityResult
+        val staged = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            data.getParcelableArrayListExtra(EXTRA_STAGED_URIS, Uri::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            data.getParcelableArrayListExtra<Uri>(EXTRA_STAGED_URIS)
+        } ?: arrayListOf()
+
+        val confirmed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            data.getParcelableArrayListExtra(EXTRA_CONFIRMED_URIS, Uri::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            data.getParcelableArrayListExtra<Uri>(EXTRA_CONFIRMED_URIS)
+        } ?: arrayListOf()
+
+        if (staged.isNotEmpty()) vm.applyStagedSelection(staged)
+        if (confirmed.isNotEmpty()) vm.confirmDeletionConfirmed(confirmed)
+    }
+
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
+        contentColor = MaterialTheme.colorScheme.onBackground,
         topBar = {
             TopAppBar(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("SwipeClean")
                         Spacer(Modifier.width(12.dp))
-                        // Indicador  actual/total
                         CounterPill(current = shownIndex, total = total)
                     }
                 },
                 navigationIcon = {
                     IconButton(onClick = { vm.undo() }, enabled = !isEmpty) {
-                        Icon(
-                            painterResource(R.drawable.ic_undo),
-                            contentDescription = "Deshacer"
-                        )
+                        Icon(painterResource(R.drawable.ic_undo), contentDescription = "Deshacer")
                     }
                 },
                 actions = {
                     IconButton(onClick = {
-                        // Abrir revisión manualmente (sin pedir permisos aquí)
-                        ctx.startActivity(
-                            Intent(ctx, ReviewActivity::class.java).apply {
-                                putParcelableArrayListExtra(
-                                    "PENDING_URIS",
-                                    ArrayList(vm.getPendingTrash())
-                                )
-                            }
-                        )
+                        val toReview = vm.getPendingForReview()
+                        if (toReview.isEmpty()) return@IconButton
+                        val intent = Intent(ctx, ReviewActivity::class.java).apply {
+                            putParcelableArrayListExtra(EXTRA_PENDING_URIS, toReview)
+                        }
+                        reviewLauncher.launch(intent)
                     }) {
-                        Icon(
-                            painterResource(R.drawable.ic_next),
-                            contentDescription = "Revisión"
-                        )
+                        Icon(painterResource(R.drawable.ic_next), contentDescription = "Revisión")
                     }
                 }
             )
@@ -112,6 +130,7 @@ fun CardScreen(vm: GalleryViewModel) {
             Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .background(MaterialTheme.colorScheme.background)
         ) {
             val media = items.getOrNull(index)
             if (media != null) {
@@ -121,16 +140,11 @@ fun CardScreen(vm: GalleryViewModel) {
                     onSwipedRight = { vm.keep() }
                 )
             } else {
-                // Lista vacía (p.ej., filtro sin resultados)
-                Text(
-                    "No hay elementos en la galería",
-                    Modifier.align(Alignment.Center)
-                )
+                Text("No hay elementos en la galería", Modifier.align(Alignment.Center))
             }
         }
     }
 }
-
 
 @Composable
 fun SwipeableMediaCard(
@@ -138,29 +152,26 @@ fun SwipeableMediaCard(
     onSwipedLeft: () -> Unit,
     onSwipedRight: () -> Unit
 ) {
+    val context = LocalContext.current
     var offsetX by remember { mutableStateOf(0f) }
     val threshold = 200f
-    val context = LocalContext.current
 
     Box(
         Modifier
             .fillMaxSize()
             .padding(24.dp)
-            .background(
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                shape = RoundedCornerShape(24.dp)
-            )
+            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(24.dp))
             .pointerInput(Unit) {
                 detectDragGestures(
                     onDragEnd = {
                         when {
-                            offsetX < -threshold -> { onSwipedLeft(); offsetX = 0f }
+                            offsetX < -threshold -> { onSwipedLeft();  offsetX = 0f }
                             offsetX >  threshold -> { onSwipedRight(); offsetX = 0f }
                             else -> offsetX = 0f
                         }
                     }
                 ) { change, drag ->
-                    change.consume() // marca el evento como consumido
+                    change.consume()
                     offsetX += drag.x
                 }
             }
@@ -171,7 +182,6 @@ fun SwipeableMediaCard(
             .clip(RoundedCornerShape(24.dp))
             .background(MaterialTheme.colorScheme.surface)
     ) {
-        // Mostrar a resolución original y sin recorte
         AsyncImage(
             model = ImageRequest.Builder(context)
                 .data(item.uri)

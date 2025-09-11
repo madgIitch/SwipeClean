@@ -32,10 +32,13 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
     // Filtro actual (persistido)
     private var currentFilter: MediaFilter = MediaFilter.ALL
 
-    // Cola de URIs pendientes de mover a papelera / borrar (persistida)
+    // URIs marcadas por deslizamiento para enviar a papelera/borrar (persistidas)
     private val pendingTrash = mutableListOf<Uri>()
 
-    // Historial para Undo (no se persiste; es solo de sesión)
+    // URIs que el usuario ya “apartó” en ReviewActivity (no deben volver a salir en la siguiente revisión)
+    private val stagedForReview = mutableSetOf<Uri>()
+
+    // Historial para Undo (solo sesión)
     private sealed class UserAction {
         data class Trash(val uri: Uri) : UserAction()
         data class Keep(val uri: Uri)  : UserAction()
@@ -47,10 +50,8 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
     // ---------------------------
     init {
         viewModelScope.launch {
-            // 1) Leer snapshot de DataStore
             val s = readUserState(getApplication())
 
-            // 2) Restaurar filtro y pendientes
             currentFilter = when (s.filter) {
                 "IMAGES" -> MediaFilter.IMAGES
                 "VIDEOS" -> MediaFilter.VIDEOS
@@ -59,22 +60,19 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
             pendingTrash.clear()
             pendingTrash.addAll(s.pending.map(Uri::parse))
 
-            // 3) Cargar medios con el filtro restaurado
             loadInternal(currentFilter)
 
-            // 4) Intentar posicionar por currentUri, si no por índice
             val savedIndex = s.index
             val candidateIndex = s.currentUri?.let { savedUri ->
                 _items.value.indexOfFirst { it.uri.toString() == savedUri }
             } ?: -1
 
             _index.value = when {
-                candidateIndex >= 0 -> candidateIndex
+                candidateIndex >= 0    -> candidateIndex
                 _items.value.isEmpty() -> 0
-                else -> savedIndex.coerceIn(0, _items.value.lastIndex)
+                else                   -> savedIndex.coerceIn(0, _items.value.lastIndex)
             }
 
-            // 5) Persistir (por si el índice clamped ha cambiado)
             persistAsync()
         }
     }
@@ -86,7 +84,6 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             currentFilter = filter
             loadInternal(filter)
-            // tras cada nueva carga, situamos al inicio y limpiamos undo (no tocamos pending)
             _index.value = 0
             history.clear()
             persistAsync()
@@ -101,14 +98,14 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     // ---------------------------
-    // Helpers de navegación/estado
+    // Helpers navegación/estado
     // ---------------------------
     fun current(): MediaItem? = _items.value.getOrNull(_index.value)
 
     private fun next() {
         val size = _items.value.size
         if (size == 0) return
-        _index.value = (_index.value + 1) % size   // <-- wrap
+        _index.value = (_index.value + 1) % size
         persistAsync()
     }
 
@@ -120,11 +117,13 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     // ---------------------------
-    // Acciones del usuario
+    // Acciones del usuario (card)
     // ---------------------------
     fun markForTrash() {
         current()?.let { item ->
-            pendingTrash += item.uri
+            if (!pendingTrash.contains(item.uri)) {
+                pendingTrash += item.uri
+            }
             history += UserAction.Trash(item.uri)
             next()
         }
@@ -137,24 +136,16 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
     fun undo() {
         if (history.isEmpty()) return
-
-        // Volvemos visualmente al anterior
         prev()
-
-        // Revertimos el efecto de la acción deshecha
         when (val last = history.removeLast()) {
             is UserAction.Trash -> {
-                // Elimina la última aparición de esa URI en pendingTrash (por seguridad)
                 val idx = pendingTrash.lastIndexOf(last.uri)
                 if (idx >= 0) pendingTrash.removeAt(idx)
                 persistAsync()
             }
-            is UserAction.Keep -> {
-                // No hay efecto en pendingTrash
-            }
+            is UserAction.Keep -> { /* no-op */ }
         }
     }
 
@@ -162,42 +153,53 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
     fun getPendingTrash(): List<Uri> = pendingTrash.toList()
 
     // ---------------------------
-    // Confirmación de papelera/borrado
+    // API para ReviewActivity (staging)
     // ---------------------------
-    /** Android 11+ (API 30): mueve a Papelera con diálogo del sistema en lote */
-    @androidx.annotation.RequiresApi(Build.VERSION_CODES.R)
+
+    /** Lista que debe ver ReviewActivity ahora: pendientes – ya “staged”. */
+    fun getPendingForReview(): ArrayList<Uri> =
+        ArrayList(pendingTrash.filterNot { stagedForReview.contains(it) })
+
+    /** Guardar selección hecha en ReviewActivity cuando el usuario vuelve sin borrar. */
+    fun applyStagedSelection(uris: List<Uri>) {
+        stagedForReview.addAll(uris)
+    }
+
+    /** Tras confirmación de borrado: sacar de pending y limpiar staged para esas URIs. */
+    fun confirmDeletionConfirmed(confirmed: List<Uri>) {
+        if (confirmed.isEmpty()) return
+        val set = confirmed.toSet()
+        pendingTrash.removeAll(set)
+        stagedForReview.removeAll(set)
+        history.clear()
+        persistAsync()
+    }
+
+    /** Si quisieras permitir “Reset selección” en Ajustes/Review. */
+    fun clearStage() = stagedForReview.clear()
+
+    // ---------------------------
+    // Confirmación compat (si algún día la haces desde aquí)
+    // ---------------------------
+    @RequiresApi(Build.VERSION_CODES.R)
     fun confirmTrash(
         context: Context,
         onNeedsUserConfirm: (IntentSender) -> Unit
     ) {
         if (pendingTrash.isEmpty()) return
-        val pi = MediaStore.createTrashRequest(
-            context.contentResolver,
-            pendingTrash.toList(),
-            /* isTrashed = */ true
-        )
+        val pi = MediaStore.createTrashRequest(context.contentResolver, pendingTrash.toList(), true)
         onNeedsUserConfirm(pi.intentSender)
-        pendingTrash.clear()
-        history.clear()
-        persistAsync()
     }
 
-    /**
-     * Compat para minSdk 26:
-     * - API 30+: usa createTrashRequest (diálogo único por lote).
-     * - API <30: no hay papelera del sistema → borrado directo best-effort.
-     */
     fun confirmTrashCompat(
         context: Context,
         onNeedsUserConfirm: (IntentSender) -> Unit
     ) {
         if (pendingTrash.isEmpty()) return
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             confirmTrash(context, onNeedsUserConfirm)
             return
         }
-
         val cr = context.contentResolver
         val it = pendingTrash.iterator()
         while (it.hasNext()) {
@@ -206,6 +208,7 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
             it.remove()
         }
         history.clear()
+        stagedForReview.clear()
         persistAsync()
     }
 

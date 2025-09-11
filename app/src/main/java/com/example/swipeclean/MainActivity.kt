@@ -9,7 +9,13 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
-import androidx.compose.material3.*
+import androidx.annotation.RequiresApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.ui.Modifier
+import com.example.swipeclean.ui.theme.SwipeCleanTheme
 import com.madglitch.swipeclean.GalleryViewModel
 import com.tuempresa.swipeclean.MediaFilter
 
@@ -17,26 +23,34 @@ class MainActivity : ComponentActivity() {
 
     private val vm: GalleryViewModel by viewModels()
 
-    // Lanzador para los diálogos del sistema (trash/delete)
     private val deleteLauncher = registerForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult()
-    ) { /* puedes comprobar resultCode si quieres */ }
+    ) { /* opcional: comprobar resultCode */ }
 
-    // Permisos de runtime
     private val permissionsLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { _ ->
-        // En cuanto conteste, intentamos cargar
         vm.load(MediaFilter.ALL)
     }
 
+    @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         requestGalleryPermissions()
 
         setContent {
-            MaterialTheme {
-                CardScreen(vm = vm)
+            // Usa tu tema oscuro con background gris-negro (#121212 recomendado)
+            SwipeCleanTheme {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.background),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    // CardScreen internamente puede tener su propio Scaffold;
+                    // si no, asegúrate de que también use containerColor = background
+                    CardScreen(vm = vm)
+                }
             }
         }
     }

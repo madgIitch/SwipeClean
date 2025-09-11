@@ -1,5 +1,6 @@
 package com.example.swipeclean
 
+import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -20,20 +21,30 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.example.swipeclean.ui.theme.SwipeCleanTheme
 import java.util.Locale
 
+// Claves compartidas
+private const val EXTRA_PENDING_URIS   = "PENDING_URIS"
+private const val EXTRA_STAGED_URIS    = "STAGED_URIS"
+private const val EXTRA_CONFIRMED_URIS = "CONFIRMED_URIS"
+
 class ReviewActivity : ComponentActivity() {
+
+    private lateinit var selected: SnapshotStateList<Uri>
 
     @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -41,156 +52,189 @@ class ReviewActivity : ComponentActivity() {
 
         val initialPending: ArrayList<Uri> =
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                intent.getParcelableArrayListExtra("PENDING_URIS", Uri::class.java) ?: arrayListOf()
+                intent.getParcelableArrayListExtra(EXTRA_PENDING_URIS, Uri::class.java) ?: arrayListOf()
             } else {
                 @Suppress("DEPRECATION")
-                intent.getParcelableArrayListExtra("PENDING_URIS") ?: arrayListOf()
+                intent.getParcelableArrayListExtra(EXTRA_PENDING_URIS) ?: arrayListOf()
             }
 
+        // Tras el diálogo del sistema, devolvemos las URIs confirmadas
         val trashLauncher = registerForActivityResult(
             ActivityResultContracts.StartIntentSenderForResult()
-        ) { _ -> finish() }
+        ) { _ ->
+            val data = Intent().apply {
+                putParcelableArrayListExtra(EXTRA_CONFIRMED_URIS, ArrayList(selected))
+            }
+            setResult(RESULT_OK, data)
+            finish()
+        }
 
         setContent {
-            MaterialTheme {
-                var items by remember { mutableStateOf(initialPending.toList()) }
-                val allCount = items.size
+            SwipeCleanTheme {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.background),
+                    color = MaterialTheme.colorScheme.background,
+                    contentColor = MaterialTheme.colorScheme.onBackground
+                ) {
+                    var items by remember { mutableStateOf(initialPending.toList()) }
+                    val allCount = items.size
 
-                // Conjunto de selección
-                val selected = remember { mutableStateListOf<Uri>() }
-                // Por defecto: todos seleccionados (o cambia aquí si prefieres ninguno seleccionado)
-                LaunchedEffect(Unit) { selected.clear(); selected.addAll(items) }
+                    selected = remember { mutableStateListOf<Uri>() }
+                    LaunchedEffect(Unit) { selected.clear(); selected.addAll(items) }
 
-                // Tamaño total de la selección
-                val selectedBytes by remember(selected.toList()) {
-                    mutableStateOf(sumSizesSafely(selected))
-                }
-
-                // Estado tri: nada, parcial, todo
-                val selectAllState: ToggleableState =
-                    when {
-                        selected.isEmpty() -> ToggleableState.Off
-                        selected.size == allCount -> ToggleableState.On
-                        else -> ToggleableState.Indeterminate
+                    val selectedBytes by remember(selected.toList()) {
+                        mutableStateOf(sumSizesSafely(selected))
                     }
 
-                Scaffold(
-                    topBar = {
-                        TopAppBar(
-                            title = { Text("Revisión para borrar") },
-                            actions = {
-                                // Selector "Seleccionar todo"
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier
-                                        .padding(end = 12.dp)
-                                        .clip(RoundedCornerShape(20.dp))
-                                        .clickable(
-                                            role = Role.Checkbox,
-                                            onClick = {
-                                                if (selected.size == allCount) {
-                                                    selected.clear()
-                                                } else {
-                                                    selected.clear(); selected.addAll(items)
+                    val selectAllState: ToggleableState = when {
+                        selected.isEmpty()       -> ToggleableState.Off
+                        selected.size == allCount -> ToggleableState.On
+                        else                      -> ToggleableState.Indeterminate
+                    }
+
+                    Scaffold(
+                        containerColor = MaterialTheme.colorScheme.background,
+                        contentColor = MaterialTheme.colorScheme.onBackground,
+                        topBar = {
+                            TopAppBar(
+                                title = { Text("Revisión para borrar") },
+                                navigationIcon = {
+                                    // Volver ➜ devolver selección staged (sin borrar aún)
+                                    IconButton(onClick = {
+                                        val data = Intent().apply {
+                                            putParcelableArrayListExtra(EXTRA_STAGED_URIS, ArrayList(selected))
+                                        }
+                                        setResult(RESULT_OK, data)
+                                        finish()
+                                    }) {
+                                        Icon(
+                                            painterResource(id = R.drawable.ic_undo),
+                                            contentDescription = "Volver"
+                                        )
+                                    }
+                                },
+                                actions = {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier
+                                            .padding(end = 12.dp)
+                                            .clip(RoundedCornerShape(20.dp))
+                                            .clickable(
+                                                role = Role.Checkbox,
+                                                onClick = {
+                                                    if (selected.size == allCount) selected.clear()
+                                                    else { selected.clear(); selected.addAll(items) }
                                                 }
+                                            )
+                                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                                    ) {
+                                        TriStateCheckbox(
+                                            state = selectAllState,
+                                            onClick = {
+                                                if (selected.size == allCount) selected.clear()
+                                                else { selected.clear(); selected.addAll(items) }
                                             }
                                         )
-                                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                                        Text("Seleccionar todo")
+                                    }
+                                }
+                            )
+                        },
+                        bottomBar = {
+                            Column(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .background(MaterialTheme.colorScheme.background)
+                                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                            ) {
+                                Text(
+                                    text = "Espacio a liberar: ${formatSize(selectedBytes)}",
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                                Spacer(Modifier.height(8.dp))
+                                Row(
+                                    Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                                 ) {
-                                    TriStateCheckbox(
-                                        state = selectAllState,
+                                    OutlinedButton(
                                         onClick = {
-                                            if (selected.size == allCount) {
-                                                selected.clear()
-                                            } else {
-                                                selected.clear(); selected.addAll(items)
+                                            val data = Intent().apply {
+                                                putParcelableArrayListExtra(EXTRA_STAGED_URIS, ArrayList(selected))
                                             }
-                                        }
-                                    )
-                                    Text("Seleccionar todo")
+                                            setResult(RESULT_OK, data)
+                                            finish()
+                                        },
+                                        modifier = Modifier.weight(1f)
+                                    ) { Text("Volver") }
+
+                                    Button(
+                                        onClick = {
+                                            val toTrash = selected.toList()
+                                            if (toTrash.isEmpty()) {
+                                                setResult(RESULT_CANCELED); finish(); return@Button
+                                            }
+                                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                                val pi = MediaStore.createTrashRequest(
+                                                    contentResolver,
+                                                    ArrayList(toTrash),
+                                                    true
+                                                )
+                                                trashLauncher.launch(
+                                                    IntentSenderRequest.Builder(pi.intentSender).build()
+                                                )
+                                            } else {
+                                                // API < 30: borrado directo
+                                                val cr = contentResolver
+                                                toTrash.forEach { uri ->
+                                                    try { cr.delete(uri, null, null) } catch (_: Exception) {}
+                                                }
+                                                val data = Intent().apply {
+                                                    putParcelableArrayListExtra(EXTRA_CONFIRMED_URIS, ArrayList(toTrash))
+                                                }
+                                                setResult(RESULT_OK, data)
+                                                finish()
+                                            }
+                                        },
+                                        enabled = selected.isNotEmpty(),
+                                        modifier = Modifier.weight(1f)
+                                    ) { Text("Mover a papelera (${selected.size})") }
                                 }
                             }
-                        )
-                    },
-                    bottomBar = {
+                        }
+                    ) { padding ->
                         Column(
                             Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 12.dp)
+                                .padding(padding)
+                                .padding(16.dp)
+                                .fillMaxSize()
+                                .background(MaterialTheme.colorScheme.background)
                         ) {
+                            Text("Seleccionados: ${selected.size} de $allCount")
+                            Spacer(Modifier.height(6.dp))
                             Text(
-                                text = "Espacio a liberar: ${formatSize(selectedBytes)}",
+                                "Espacio que se liberará: ${formatSize(selectedBytes)}",
                                 style = MaterialTheme.typography.bodyMedium
                             )
-                            Spacer(Modifier.height(8.dp))
-                            Row(
-                                Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            Spacer(Modifier.height(12.dp))
+
+                            LazyVerticalGrid(
+                                columns = GridCells.Fixed(3),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.fillMaxSize()
                             ) {
-                                OutlinedButton(
-                                    onClick = { finish() },
-                                    modifier = Modifier.weight(1f)
-                                ) { Text("Volver") }
-
-                                Button(
-                                    onClick = {
-                                        val toTrash = selected.toList()
-                                        if (toTrash.isEmpty()) {
-                                            finish(); return@Button
+                                items(items, key = { it }) { uri ->
+                                    SelectableThumb(
+                                        uri = uri,
+                                        selected = selected.contains(uri),
+                                        onToggle = {
+                                            if (selected.contains(uri)) selected.remove(uri)
+                                            else selected.add(uri)
                                         }
-                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                                            val pi = MediaStore.createTrashRequest(
-                                                contentResolver,
-                                                ArrayList(toTrash),
-                                                true
-                                            )
-                                            trashLauncher.launch(
-                                                IntentSenderRequest.Builder(pi.intentSender).build()
-                                            )
-                                        } else {
-                                            val cr = contentResolver
-                                            toTrash.forEach { uri ->
-                                                try { cr.delete(uri, null, null) } catch (_: Exception) {}
-                                            }
-                                            finish()
-                                        }
-                                    },
-                                    enabled = selected.isNotEmpty(),
-                                    modifier = Modifier.weight(1f)
-                                ) { Text("Mover a papelera (${selected.size})") }
-                            }
-                        }
-                    }
-                ) { padding ->
-                    Column(
-                        Modifier
-                            .padding(padding)
-                            .padding(16.dp)
-                            .fillMaxSize()
-                    ) {
-                        Text("Seleccionados: ${selected.size} de $allCount")
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            "Espacio que se liberará: ${formatSize(selectedBytes)}",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                        Spacer(Modifier.height(12.dp))
-
-                        LazyVerticalGrid(
-                            columns = GridCells.Fixed(3),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.fillMaxSize()
-                        ) {
-                            items(items, key = { it }) { uri ->
-                                SelectableThumb(
-                                    uri = uri,
-                                    selected = selected.contains(uri),
-                                    onToggle = {
-                                        if (selected.contains(uri)) selected.remove(uri)
-                                        else selected.add(uri)
-                                    }
-                                )
+                                    )
+                                }
                             }
                         }
                     }
@@ -199,9 +243,7 @@ class ReviewActivity : ComponentActivity() {
         }
     }
 
-    // --- Helpers ---
-
-    /** Suma tamaños (en bytes) usando OpenableColumns.SIZE; ignora URIs sin tamaño. */
+    // ---- Helpers ----
     private fun sumSizesSafely(uris: List<Uri>): Long {
         var total = 0L
         val projection = arrayOf(OpenableColumns.SIZE)
@@ -218,7 +260,6 @@ class ReviewActivity : ComponentActivity() {
         return total
     }
 
-    /** Formatea bytes legibles. */
     private fun formatSize(bytes: Long): String {
         val kb = 1024.0
         val mb = kb * 1024
@@ -232,7 +273,6 @@ class ReviewActivity : ComponentActivity() {
     }
 }
 
-/** Card cuadrada seleccionable con overlay de selección. */
 @Composable
 private fun SelectableThumb(
     uri: Uri,
@@ -261,7 +301,6 @@ private fun SelectableThumb(
         )
 
         if (selected) {
-            // Overlay morado suave + borde
             Box(
                 modifier = Modifier
                     .matchParentSize()
@@ -272,13 +311,8 @@ private fun SelectableThumb(
                     .matchParentSize()
                     .padding(1.dp)
                     .clip(shape)
-                    .border(
-                        width = 2.dp,
-                        color = Color(0xFF6750A4),
-                        shape = shape
-                    )
+                    .border(2.dp, Color(0xFF6750A4), shape)
             )
-            // Check arriba a la derecha
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
