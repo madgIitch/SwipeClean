@@ -21,29 +21,25 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import coil.size.Size
+import com.example.swipeclean.ui.components.RoundActionIcon
 import com.madglitch.swipeclean.GalleryViewModel
-import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CardScreen(
     vm: GalleryViewModel,
-    // cantidad para confirmar en lote (un único diálogo del sistema cada N marcados)
-    autoBatchSize: Int = 5
+    autoBatchSize: Int = 5 // confirma en lote cada N elementos marcados
 ) {
     val items by vm.items.collectAsState()
     val index by vm.index.collectAsState()
     val context = LocalContext.current
 
-    val snackbarHost = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
-
-    // Launcher para ejecutar el IntentSender (solo en API 30+)
+    // Launcher para ejecutar el IntentSender (API 30+)
     val intentSenderLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult()
     ) { /* opcional: comprobar resultCode */ }
 
-    // Helper: confirma el lote si toca (usa compat para API<30)
+    // Confirma el lote si toca (usa compat para API<30)
     fun maybeConfirmTrashBatch() {
         if (vm.pendingCount() > 0 &&
             (vm.pendingCount() >= autoBatchSize || index >= items.size)
@@ -58,7 +54,6 @@ fun CardScreen(
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("SwipeClean") }) },
-        snackbarHost = { SnackbarHost(snackbarHost) },
         bottomBar = {
             Row(
                 Modifier
@@ -66,25 +61,29 @@ fun CardScreen(
                     .padding(16.dp),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                OutlinedButton(
+                RoundActionIcon(
+                    icon = R.drawable.ic_delete,
+                    contentDesc = "Borrar",
                     onClick = {
                         vm.markForTrash()
-                        scope.launch {
-                            val res = snackbarHost.showSnackbar(
-                                message = "Enviada a papelera",
-                                actionLabel = "Deshacer",
-                                withDismissAction = true
-                            )
-                            if (res == SnackbarResult.ActionPerformed) vm.undo()
-                        }
                         maybeConfirmTrashBatch()
-                    }
-                ) { Text("Borrar") }
+                    },
+                    container = MaterialTheme.colorScheme.errorContainer,
+                    content = MaterialTheme.colorScheme.onErrorContainer
+                )
 
-                OutlinedButton(onClick = { vm.keep() }) { Text("Guardar") }
+                RoundActionIcon(
+                    icon = R.drawable.ic_check,
+                    contentDesc = "Guardar",
+                    onClick = { vm.keep() },
+                    container = MaterialTheme.colorScheme.primaryContainer,
+                    content = MaterialTheme.colorScheme.onPrimaryContainer
+                )
             }
         }
-    ) { padding ->
+
+    )
+    { padding ->
         Box(
             Modifier
                 .fillMaxSize()
@@ -104,14 +103,6 @@ fun CardScreen(
                     item = media,
                     onSwipedLeft = {
                         vm.markForTrash()
-                        scope.launch {
-                            val res = snackbarHost.showSnackbar(
-                                message = "Enviada a papelera",
-                                actionLabel = "Deshacer",
-                                withDismissAction = true
-                            )
-                            if (res == SnackbarResult.ActionPerformed) vm.undo()
-                        }
                         maybeConfirmTrashBatch()
                     },
                     onSwipedRight = { vm.keep() }
@@ -149,7 +140,7 @@ fun SwipeableMediaCard(
                         }
                     }
                 ) { change, drag ->
-                    change.consume() // marcar el evento como consumido
+                    change.consume() // marca el evento como consumido
                     offsetX += drag.x
                 }
             }
