@@ -1,3 +1,4 @@
+// GalleryViewModel.kt
 package com.madglitch.swipeclean
 
 import android.app.Application
@@ -28,11 +29,20 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
     // Cola de URIs a enviar a papelera / borrar
     private val pendingTrash = mutableListOf<Uri>()
 
+    // 🔹 Historial de acciones del usuario para poder deshacer correctamente
+    private sealed class UserAction {
+        data class Trash(val uri: Uri) : UserAction()
+        data class Keep(val uri: Uri)  : UserAction()
+    }
+    private val history = mutableListOf<UserAction>()
+
     fun load(filter: MediaFilter = MediaFilter.ALL) {
         viewModelScope.launch(Dispatchers.IO) {
             val data = getApplication<Application>().applicationContext.loadMedia(filter)
             _items.value = data
             _index.value = 0
+            history.clear()
+            pendingTrash.clear()
         }
     }
 
@@ -45,19 +55,39 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
     fun markForTrash() {
         current()?.let { item ->
             pendingTrash += item.uri
+            history += UserAction.Trash(item.uri)
             next()
         }
     }
 
     fun keep() {
-        next()
+        current()?.let { item ->
+            history += UserAction.Keep(item.uri)
+            next()
+        }
     }
 
+    @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
     fun undo() {
+        if (history.isEmpty()) return
+        // Volvemos visualmente al anterior
         _index.value = (_index.value - 1).coerceAtLeast(0)
+
+        // Revertimos el efecto de la acción deshecha
+        when (val last = history.removeLast()) {
+            is UserAction.Trash -> {
+                // Elimina la última aparición de esa URI en pendingTrash (por seguridad)
+                val idx = pendingTrash.lastIndexOf(last.uri)
+                if (idx >= 0) pendingTrash.removeAt(idx)
+            }
+            is UserAction.Keep -> {
+                // No hay efecto en pendingTrash
+            }
+        }
     }
 
     fun pendingCount(): Int = pendingTrash.size
+    fun getPendingTrash(): List<Uri> = pendingTrash.toList()
 
     /** Android 11+ (API 30): mueve a Papelera con diálogo del sistema en lote */
     @RequiresApi(Build.VERSION_CODES.R)
@@ -73,9 +103,8 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
         )
         onNeedsUserConfirm(pi.intentSender)
         pendingTrash.clear()
+        history.clear() // tras confirmación, reseteamos el historial de "Trash"
     }
-    // GalleryViewModel.kt
-    fun getPendingTrash(): List<Uri> = pendingTrash.toList()
 
     /**
      * Compat para minSdk 26:
@@ -93,17 +122,13 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
 
-        // API 26–29: intentar borrar directamente.
         val cr = context.contentResolver
         val it = pendingTrash.iterator()
         while (it.hasNext()) {
             val uri = it.next()
-            try {
-                cr.delete(uri, null, null)
-            } catch (_: Exception) {
-                // ignora errores individuales
-            }
+            try { cr.delete(uri, null, null) } catch (_: Exception) {}
             it.remove()
         }
+        history.clear()
     }
 }
