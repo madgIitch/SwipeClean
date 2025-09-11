@@ -20,38 +20,107 @@ import kotlinx.coroutines.launch
 
 class GalleryViewModel(app: Application) : AndroidViewModel(app) {
 
+    // ---------------------------
+    // State (UI)
+    // ---------------------------
     private val _items = MutableStateFlow<List<MediaItem>>(emptyList())
     val items: StateFlow<List<MediaItem>> = _items
 
     private val _index = MutableStateFlow(0)
     val index: StateFlow<Int> = _index
 
-    // Cola de URIs a enviar a papelera / borrar
+    // Filtro actual (persistido)
+    private var currentFilter: MediaFilter = MediaFilter.ALL
+
+    // Cola de URIs pendientes de mover a papelera / borrar (persistida)
     private val pendingTrash = mutableListOf<Uri>()
 
-    // 🔹 Historial de acciones del usuario para poder deshacer correctamente
+    // Historial para Undo (no se persiste; es solo de sesión)
     private sealed class UserAction {
         data class Trash(val uri: Uri) : UserAction()
         data class Keep(val uri: Uri)  : UserAction()
     }
     private val history = mutableListOf<UserAction>()
 
-    fun load(filter: MediaFilter = MediaFilter.ALL) {
-        viewModelScope.launch(Dispatchers.IO) {
-            val data = getApplication<Application>().applicationContext.loadMedia(filter)
-            _items.value = data
-            _index.value = 0
-            history.clear()
+    // ---------------------------
+    // Init: restaurar estado guardado y cargar media
+    // ---------------------------
+    init {
+        viewModelScope.launch {
+            // 1) Leer snapshot de DataStore
+            val s = readUserState(getApplication())
+
+            // 2) Restaurar filtro y pendientes
+            currentFilter = when (s.filter) {
+                "IMAGES" -> MediaFilter.IMAGES
+                "VIDEOS" -> MediaFilter.VIDEOS
+                else     -> MediaFilter.ALL
+            }
             pendingTrash.clear()
+            pendingTrash.addAll(s.pending.map(Uri::parse))
+
+            // 3) Cargar medios con el filtro restaurado
+            loadInternal(currentFilter)
+
+            // 4) Intentar posicionar por currentUri, si no por índice
+            val savedIndex = s.index
+            val candidateIndex = s.currentUri?.let { savedUri ->
+                _items.value.indexOfFirst { it.uri.toString() == savedUri }
+            } ?: -1
+
+            _index.value = when {
+                candidateIndex >= 0 -> candidateIndex
+                _items.value.isEmpty() -> 0
+                else -> savedIndex.coerceIn(0, _items.value.lastIndex)
+            }
+
+            // 5) Persistir (por si el índice clamped ha cambiado)
+            persistAsync()
         }
     }
 
+    // ---------------------------
+    // Carga de Media (pública)
+    // ---------------------------
+    fun load(filter: MediaFilter = MediaFilter.ALL) {
+        viewModelScope.launch {
+            currentFilter = filter
+            loadInternal(filter)
+            // tras cada nueva carga, situamos al inicio y limpiamos undo (no tocamos pending)
+            _index.value = 0
+            history.clear()
+            persistAsync()
+        }
+    }
+
+    // Carga real en IO
+    private suspend fun loadInternal(filter: MediaFilter) {
+        val ctx = getApplication<Application>().applicationContext
+        val data = with(Dispatchers.IO) { ctx.loadMedia(filter) }
+        _items.value = data
+    }
+
+    // ---------------------------
+    // Helpers de navegación/estado
+    // ---------------------------
     fun current(): MediaItem? = _items.value.getOrNull(_index.value)
 
     private fun next() {
-        _index.value = (_index.value + 1).coerceAtMost(_items.value.size)
+        if (_items.value.isEmpty()) return
+        // No avanzar más allá del último índice válido
+        _index.value = (_index.value + 1).coerceAtMost(_items.value.lastIndex)
+        persistAsync()
     }
 
+    private fun prev() {
+        if (_items.value.isEmpty()) return
+        _index.value = (_index.value - 1).coerceAtLeast(0)
+        persistAsync()
+    }
+
+    // ---------------------------
+    // Acciones del usuario
+    // ---------------------------
     fun markForTrash() {
         current()?.let { item ->
             pendingTrash += item.uri
@@ -70,8 +139,9 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
     @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
     fun undo() {
         if (history.isEmpty()) return
+
         // Volvemos visualmente al anterior
-        _index.value = (_index.value - 1).coerceAtLeast(0)
+        prev()
 
         // Revertimos el efecto de la acción deshecha
         when (val last = history.removeLast()) {
@@ -79,6 +149,7 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
                 // Elimina la última aparición de esa URI en pendingTrash (por seguridad)
                 val idx = pendingTrash.lastIndexOf(last.uri)
                 if (idx >= 0) pendingTrash.removeAt(idx)
+                persistAsync()
             }
             is UserAction.Keep -> {
                 // No hay efecto en pendingTrash
@@ -89,8 +160,11 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
     fun pendingCount(): Int = pendingTrash.size
     fun getPendingTrash(): List<Uri> = pendingTrash.toList()
 
+    // ---------------------------
+    // Confirmación de papelera/borrado
+    // ---------------------------
     /** Android 11+ (API 30): mueve a Papelera con diálogo del sistema en lote */
-    @RequiresApi(Build.VERSION_CODES.R)
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.R)
     fun confirmTrash(
         context: Context,
         onNeedsUserConfirm: (IntentSender) -> Unit
@@ -103,7 +177,8 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
         )
         onNeedsUserConfirm(pi.intentSender)
         pendingTrash.clear()
-        history.clear() // tras confirmación, reseteamos el historial de "Trash"
+        history.clear()
+        persistAsync()
     }
 
     /**
@@ -130,5 +205,23 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
             it.remove()
         }
         history.clear()
+        persistAsync()
+    }
+
+    // ---------------------------
+    // Persistencia con DataStore
+    // ---------------------------
+    private fun persistAsync() = viewModelScope.launch {
+        saveUserState(
+            context = getApplication(),
+            index = _index.value.coerceIn(0, (_items.value.lastIndex).coerceAtLeast(0)),
+            currentUri = current()?.uri?.toString(),
+            pending = pendingTrash.map(Uri::toString).toSet(),
+            filter = when (currentFilter) {
+                MediaFilter.IMAGES -> "IMAGES"
+                MediaFilter.VIDEOS -> "VIDEOS"
+                MediaFilter.ALL    -> "ALL"
+            }
+        )
     }
 }

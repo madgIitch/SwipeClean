@@ -44,6 +44,9 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.4")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.4")
     implementation(libs.androidx.activity.compose)
+    // build.gradle (module)
+    implementation("androidx.datastore:datastore-preferences:1.1.1")
+
 
     // Compose (BOM)
     implementation(platform(libs.androidx.compose.bom))
