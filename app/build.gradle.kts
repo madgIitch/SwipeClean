@@ -56,7 +56,10 @@ dependencies {
     implementation(libs.androidx.material3)
 
     // Carga de imágenes y thumbnails de vídeo
+    implementation("io.coil-kt:coil:2.6.0")
     implementation("io.coil-kt:coil-compose:2.6.0")
+    implementation("io.coil-kt:coil-video:2.6.0")
+    implementation(libs.androidx.media3.common.ktx) // <- para miniaturas de vídeo
 
     // (Opcional) Reproducir vídeo inline en versiones siguientes
     // implementation("androidx.media3:media3-exoplayer:1.4.1")

@@ -2,16 +2,17 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Permisos para acceder a imágenes y vídeos -->
+    <!-- Permisos Android 13+ -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
 
-    <!-- Compatibilidad con Android 10–12 -->
+    <!-- Compatibilidad Android 10–12 -->
     <uses-permission
         android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
 
     <application
+        android:name=".SwipeCleanApp"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -24,7 +25,7 @@
 
         <!-- Activity principal -->
         <activity
-            android:name="com.example.swipeclean.MainActivity"
+            android:name=".MainActivity"
             android:exported="true"
             android:label="@string/app_name"
             android:theme="@style/Theme.SwipeClean">
@@ -34,13 +35,12 @@
             </intent-filter>
         </activity>
 
-        <!-- Activity de revisión (debe estar registrada explícitamente) -->
+        <!-- Activity de revisión -->
         <activity
-            android:name="com.example.swipeclean.ReviewActivity"
+            android:name=".ReviewActivity"
             android:exported="false"
             android:label="@string/app_name"
             android:theme="@style/Theme.SwipeClean" />
-
     </application>
 
 </manifest>
