@@ -4,25 +4,25 @@ import android.net.Uri
 import android.util.Log
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import androidx.annotation.OptIn
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.mediacodec.MediaCodecRenderer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
-import androidx.media3.common.MediaItem as M3Item
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -31,7 +31,7 @@ fun VideoPlayer(
     modifier: Modifier = Modifier,
     autoPlay: Boolean = true,
     loop: Boolean = true,
-    mute: Boolean = true,
+    mute: Boolean = false,
     showControls: Boolean = true,
 ) {
     val TAG = "SwipeClean/Video"
@@ -39,22 +39,36 @@ fun VideoPlayer(
     val lifecycleOwner = LocalLifecycleOwner.current
 
     val exoPlayer = remember(uri) {
+        // Renderers con fallback si el HW decoder no soporta el perfil
         val renderers = DefaultRenderersFactory(context)
-            .setEnableDecoderFallback(true) // intenta SW si el HW no soporta el perfil
-        ExoPlayer.Builder(context, renderers).build().apply {
-            setMediaItem(M3Item.fromUri(uri)) // ¡no fuerces MIME!
-            repeatMode = if (loop) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
-            volume = if (mute) 0f else 1f
-            prepare()
-            playWhenReady = autoPlay
-            Log.d(TAG, "Init → uri=$uri autoPlay=$autoPlay loop=$loop mute=$mute")
-        }
+            .setEnableDecoderFallback(true)
+
+        // DataSource que soporta content:// (y http:// si alguna vez lo usas)
+        val httpFactory = DefaultHttpDataSource.Factory()
+            .setUserAgent("SwipeClean/1.0")
+            .setAllowCrossProtocolRedirects(true)
+        val dataSourceFactory = DefaultDataSource.Factory(context, httpFactory)
+        val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
+
+        ExoPlayer.Builder(context, renderers)
+            .setMediaSourceFactory(mediaSourceFactory)
+            .build()
+            .apply {
+                setMediaItem(MediaItem.fromUri(uri))
+                repeatMode = if (loop) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+                volume = if (mute) 0f else 1f
+                prepare()
+                playWhenReady = autoPlay
+                Log.d(TAG, "Init local → uri=$uri autoPlay=$autoPlay loop=$loop mute=$mute")
+            }
     }
 
+    // Asegura play() tras prepare
     LaunchedEffect(exoPlayer, autoPlay) {
         if (autoPlay) exoPlayer.play()
     }
 
+    // Logs útiles
     DisposableEffect(exoPlayer) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
@@ -72,7 +86,7 @@ fun VideoPlayer(
             }
             override fun onTracksChanged(tracks: Tracks) {
                 tracks.groups.forEach { g ->
-                    for (i in 0 until g.length) {
+                    repeat(g.length) { i ->
                         val f = g.getTrackFormat(i)
                         if (f.sampleMimeType?.startsWith("video/") == true) {
                             Log.d(TAG, "track → ${f.width}x${f.height} mime=${f.sampleMimeType} codec=${f.codecs}")
@@ -91,6 +105,7 @@ fun VideoPlayer(
         onDispose { exoPlayer.removeListener(listener) }
     }
 
+    // Ciclo de vida
     DisposableEffect(lifecycleOwner, exoPlayer) {
         val obs = LifecycleEventObserver { _, e ->
             when (e) {
@@ -115,7 +130,7 @@ fun VideoPlayer(
                 setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
                 keepScreenOn = true
                 layoutParams = android.widget.FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT)
-                this.player = exoPlayer
+                player = exoPlayer
             }
         },
         update = { view ->

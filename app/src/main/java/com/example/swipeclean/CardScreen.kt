@@ -189,7 +189,7 @@ fun SwipeableMediaCard(
             .background(MaterialTheme.colorScheme.surface)
     ) {
         // ⬇️ Aquí
-        MediaSurface(item = item, forceTestVideo = true)
+        MediaSurface(item = item)
     }
 }
 
