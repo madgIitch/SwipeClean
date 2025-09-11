@@ -2,9 +2,11 @@ package com.example.swipeclean
 
 import android.content.Intent
 import android.content.IntentSender
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.RequiresApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
@@ -23,10 +25,12 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import coil.size.Size
+import com.example.swipeclean.ui.components.CounterPill
 import com.example.swipeclean.ui.components.RoundActionIcon
 import com.madglitch.swipeclean.GalleryViewModel
 
 
+@RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CardScreen(vm: GalleryViewModel) {
@@ -34,18 +38,32 @@ fun CardScreen(vm: GalleryViewModel) {
     val index by vm.index.collectAsState()
     val ctx = LocalContext.current
 
+    val total = items.size
+    val shownIndex = if (total > 0) (index % total) + 1 else 0
+    val isEmpty = total == 0
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("SwipeClean") },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("SwipeClean")
+                        Spacer(Modifier.width(12.dp))
+                        // Indicador  actual/total
+                        CounterPill(current = shownIndex, total = total)
+                    }
+                },
                 navigationIcon = {
-                    IconButton(onClick = { vm.undo() }) {
-                        Icon(painterResource(R.drawable.ic_undo), contentDescription = "Atrás")
+                    IconButton(onClick = { vm.undo() }, enabled = !isEmpty) {
+                        Icon(
+                            painterResource(R.drawable.ic_undo),
+                            contentDescription = "Deshacer"
+                        )
                     }
                 },
                 actions = {
                     IconButton(onClick = {
-                        // Ir a revisión manualmente (sin pedir permisos aquí)
+                        // Abrir revisión manualmente (sin pedir permisos aquí)
                         ctx.startActivity(
                             Intent(ctx, ReviewActivity::class.java).apply {
                                 putParcelableArrayListExtra(
@@ -55,21 +73,26 @@ fun CardScreen(vm: GalleryViewModel) {
                             }
                         )
                     }) {
-                        Icon(painterResource(R.drawable.ic_next), contentDescription = "Revisión")
+                        Icon(
+                            painterResource(R.drawable.ic_next),
+                            contentDescription = "Revisión"
+                        )
                     }
                 }
             )
         },
         bottomBar = {
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 32.dp),
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 32.dp, vertical = 32.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 RoundActionIcon(
                     icon = R.drawable.ic_delete,
                     contentDesc = "Borrar",
-                    onClick = { vm.markForTrash() }, // <--- SIN confirmar aquí
+                    onClick = { vm.markForTrash() },
                     container = MaterialTheme.colorScheme.errorContainer,
                     content   = MaterialTheme.colorScheme.onErrorContainer,
                     size = 80.dp
@@ -85,26 +108,23 @@ fun CardScreen(vm: GalleryViewModel) {
             }
         }
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .padding(padding)
+        ) {
             val media = items.getOrNull(index)
-            if (media == null) {
-                // Fin de cola: ir automáticamente a ReviewActivity
-                LaunchedEffect(Unit) {
-                    ctx.startActivity(
-                        Intent(ctx, ReviewActivity::class.java).apply {
-                            putParcelableArrayListExtra(
-                                "PENDING_URIS",
-                                ArrayList(vm.getPendingTrash())
-                            )
-                        }
-                    )
-                }
-                Text("No hay más elementos", Modifier.align(Alignment.Center))
-            } else {
+            if (media != null) {
                 SwipeableMediaCard(
                     item = media,
-                    onSwipedLeft = { vm.markForTrash() }, // <--- SIN confirmar aquí
+                    onSwipedLeft  = { vm.markForTrash() },
                     onSwipedRight = { vm.keep() }
+                )
+            } else {
+                // Lista vacía (p.ej., filtro sin resultados)
+                Text(
+                    "No hay elementos en la galería",
+                    Modifier.align(Alignment.Center)
                 )
             }
         }

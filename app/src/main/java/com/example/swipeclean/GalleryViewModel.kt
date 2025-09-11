@@ -106,15 +106,16 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
     fun current(): MediaItem? = _items.value.getOrNull(_index.value)
 
     private fun next() {
-        if (_items.value.isEmpty()) return
-        // No avanzar más allá del último índice válido
-        _index.value = (_index.value + 1).coerceAtMost(_items.value.lastIndex)
+        val size = _items.value.size
+        if (size == 0) return
+        _index.value = (_index.value + 1) % size   // <-- wrap
         persistAsync()
     }
 
     private fun prev() {
-        if (_items.value.isEmpty()) return
-        _index.value = (_index.value - 1).coerceAtLeast(0)
+        val size = _items.value.size
+        if (size == 0) return
+        _index.value = (_index.value - 1 + size) % size
         persistAsync()
     }
 
