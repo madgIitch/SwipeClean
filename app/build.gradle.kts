@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.madglitch.swipeclean"
+    namespace = "com.example.swipeclean"
     compileSdk = 35
 
     defaultConfig {

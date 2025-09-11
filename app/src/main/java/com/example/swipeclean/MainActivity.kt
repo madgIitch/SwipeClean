@@ -1,4 +1,4 @@
-package com.tuempresa.swipeclean
+package com.example.swipeclean
 
 import android.Manifest
 import android.content.IntentSender
@@ -9,11 +9,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
-import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import com.example.swipeclean.CardScreen
-import com.example.swipeclean.GalleryViewModel
+import com.tuempresa.swipeclean.MediaFilter
 
 class MainActivity : ComponentActivity() {
 
