@@ -29,10 +29,7 @@ import com.example.swipeclean.ui.components.CounterPill
 import com.example.swipeclean.ui.components.RoundActionIcon
 import com.madglitch.swipeclean.GalleryViewModel
 
-// Extras
-private const val EXTRA_PENDING_URIS   = "PENDING_URIS"
-private const val EXTRA_STAGED_URIS    = "STAGED_URIS"
-private const val EXTRA_CONFIRMED_URIS = "CONFIRMED_URIS"
+
 
 @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE) // bájalo si tu minSdk lo requiere
 @OptIn(ExperimentalMaterial3Api::class)
@@ -47,6 +44,7 @@ fun CardScreen(vm: GalleryViewModel) {
     val shownIndex = if (total > 0) clampedIndex + 1 else 0
     val isEmpty = total == 0
 
+    // Launcher para ReviewActivity -> recibe staged/confirmed
     val reviewLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -69,7 +67,7 @@ fun CardScreen(vm: GalleryViewModel) {
             } ?: arrayListOf()
 
         if (staged.isNotEmpty()) vm.applyStagedSelection(staged)
-        if (confirmed.isNotEmpty()) vm.confirmDeletionConfirmed(confirmed)
+        if (confirmed.isNotEmpty()) vm.confirmDeletionConfirmed(confirmed) // <- ahora recarga y ajusta índice
     }
 
     Scaffold(
@@ -188,12 +186,11 @@ fun SwipeableMediaCard(
             .clip(RoundedCornerShape(24.dp))
             .background(MaterialTheme.colorScheme.surface)
     ) {
-        // ⬇️ Aquí
         MediaSurface(item = item)
     }
 }
 
-/** Carga imagen o frame de vídeo con Coil-Video. */
+/** Carga imagen o frame de vídeo con Coil/ExoPlayer. */
 @Composable
 private fun MediaSurface(
     item: MediaItem,
@@ -202,7 +199,6 @@ private fun MediaSurface(
     val TAG = "SwipeClean/MediaSurface"
     val ctx = LocalContext.current
 
-    // === Prueba rápida con URL de ExoPlayer ===
     if (forceTestVideo) {
         Log.d(TAG, "FORZADO → Reproduciendo url de prueba")
         VideoPlayer(
@@ -216,7 +212,6 @@ private fun MediaSurface(
         return
     }
 
-    // Detecta si es vídeo (usa varios indicios)
     val resolvedMime = remember(item.uri, item.mimeType, item.isVideo) {
         runCatching { ctx.contentResolver.getType(item.uri) }.getOrNull()
     }
@@ -227,7 +222,6 @@ private fun MediaSurface(
     Log.d(TAG, "render → uri=${item.uri} | itemMime=${item.mimeType} | crMime=$resolvedMime | isVideo=$isVideo")
 
     if (isVideo) {
-        // 🔊 Reproduce el URI local (MediaStore) con ExoPlayer
         VideoPlayer(
             uri = item.uri,
             modifier = Modifier.fillMaxSize(),
@@ -237,7 +231,6 @@ private fun MediaSurface(
             showControls = true
         )
     } else {
-        // 🖼️ Imagen (o frame de vídeo si no se detectó)
         SubcomposeAsyncImage(
             model = ImageRequest.Builder(ctx)
                 .data(item.uri)
@@ -260,4 +253,3 @@ private fun MediaSurface(
         )
     }
 }
-

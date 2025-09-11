@@ -23,23 +23,24 @@ class MainActivity : ComponentActivity() {
 
     private val vm: GalleryViewModel by viewModels()
 
+    // Diálogos del sistema (trash/delete)
     private val deleteLauncher = registerForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult()
     ) { /* opcional: comprobar resultCode */ }
 
+    // Permisos
     private val permissionsLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { _ ->
         vm.load(MediaFilter.ALL)
     }
 
-    @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
+    @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         requestGalleryPermissions()
 
         setContent {
-            // Usa tu tema oscuro con background gris-negro (#121212 recomendado)
             SwipeCleanTheme {
                 Surface(
                     modifier = Modifier
@@ -47,8 +48,7 @@ class MainActivity : ComponentActivity() {
                         .background(MaterialTheme.colorScheme.background),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    // CardScreen internamente puede tener su propio Scaffold;
-                    // si no, asegúrate de que también use containerColor = background
+                    // CardScreen ya gestiona abrir ReviewActivity y procesar el resultado
                     CardScreen(vm = vm)
                 }
             }

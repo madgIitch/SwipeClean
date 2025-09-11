@@ -37,10 +37,7 @@ import coil.request.ImageRequest
 import com.example.swipeclean.ui.theme.SwipeCleanTheme
 import java.util.Locale
 
-// Claves compartidas
-private const val EXTRA_PENDING_URIS   = "PENDING_URIS"
-private const val EXTRA_STAGED_URIS    = "STAGED_URIS"
-private const val EXTRA_CONFIRMED_URIS = "CONFIRMED_URIS"
+
 
 class ReviewActivity : ComponentActivity() {
 
