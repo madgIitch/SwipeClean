@@ -3,6 +3,7 @@ package com.example.swipeclean
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
@@ -176,7 +177,6 @@ fun SwipeableMediaCard(
                         offsetX = 0f
                     }
                 ) { change, drag ->
-                    // No import extra: esta extensión existe en el scope del change
                     change.consume()
                     offsetX += drag.x
                 }
@@ -188,35 +188,76 @@ fun SwipeableMediaCard(
             .clip(RoundedCornerShape(24.dp))
             .background(MaterialTheme.colorScheme.surface)
     ) {
-        MediaContent(uri = item.uri)
+        // ⬇️ Aquí
+        MediaSurface(item = item, forceTestVideo = true)
     }
 }
 
 /** Carga imagen o frame de vídeo con Coil-Video. */
 @Composable
-private fun MediaContent(uri: Uri) {
+private fun MediaSurface(
+    item: MediaItem,
+    forceTestVideo: Boolean = false // pon true para probar una URL remota
+) {
+    val TAG = "SwipeClean/MediaSurface"
     val ctx = LocalContext.current
-    val mime = remember(uri) { ctx.contentResolver.getType(uri) ?: "" }
 
-    SubcomposeAsyncImage(
-        model = ImageRequest.Builder(ctx)
-            .data(uri)
-            .size(Size.ORIGINAL)          // respeta resolución
-            .crossfade(true)
-            // Si es vídeo, coil-video cogerá un frame automáticamente
-            .build(),
-        contentDescription = null,
-        contentScale = ContentScale.Fit,  // encaja sin recortar
-        modifier = Modifier.fillMaxSize(),
-        loading = {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
+    // === Prueba rápida con URL de ExoPlayer ===
+    if (forceTestVideo) {
+        Log.d(TAG, "FORZADO → Reproduciendo url de prueba")
+        VideoPlayer(
+            uri = Uri.parse("https://storage.googleapis.com/exoplayer-test-media-1/mp4/480x270/matrix.mp4"),
+            modifier = Modifier.fillMaxSize(),
+            autoPlay = true,
+            loop = false,
+            mute = false,
+            showControls = true
+        )
+        return
+    }
+
+    // Detecta si es vídeo (usa varios indicios)
+    val resolvedMime = remember(item.uri, item.mimeType, item.isVideo) {
+        runCatching { ctx.contentResolver.getType(item.uri) }.getOrNull()
+    }
+    val isVideo = item.isVideo ||
+            item.mimeType.startsWith("video/") ||
+            (resolvedMime?.startsWith("video/") == true)
+
+    Log.d(TAG, "render → uri=${item.uri} | itemMime=${item.mimeType} | crMime=$resolvedMime | isVideo=$isVideo")
+
+    if (isVideo) {
+        // 🔊 Reproduce el URI local (MediaStore) con ExoPlayer
+        VideoPlayer(
+            uri = item.uri,
+            modifier = Modifier.fillMaxSize(),
+            autoPlay = true,
+            loop = true,
+            mute = false,
+            showControls = true
+        )
+    } else {
+        // 🖼️ Imagen (o frame de vídeo si no se detectó)
+        SubcomposeAsyncImage(
+            model = ImageRequest.Builder(ctx)
+                .data(item.uri)
+                .size(Size.ORIGINAL)
+                .crossfade(true)
+                .build(),
+            contentDescription = null,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.fillMaxSize(),
+            loading = {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
+            },
+            error = {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("Error al cargar", style = MaterialTheme.typography.bodyMedium)
+                }
             }
-        },
-        error = {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("Error al cargar", style = MaterialTheme.typography.bodyMedium)
-            }
-        }
-    )
+        )
+    }
 }
+

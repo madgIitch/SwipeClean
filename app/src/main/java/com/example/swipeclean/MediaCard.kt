@@ -1,10 +1,12 @@
 package com.example.swipeclean
 
+import android.net.Uri
 import android.util.Log
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
@@ -16,38 +18,70 @@ import coil.request.ImageRequest
 
 @Composable
 fun MediaCard(item: MediaItem?) {
+    val TAG = "SwipeClean/UI"
     val ctx = LocalContext.current
     val appLoader = (ctx.applicationContext as SwipeCleanApp).imageLoader
-    val TAG = "SwipeClean/UI"
 
     if (item == null) {
-        Log.w(TAG, "MediaCard: item=null → mostrando placeholder de texto")
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            Text("Sin imagen")
-        }
-    } else {
-        Log.d(TAG, "MediaCard: preparando request → uri=${item.uri}, mime=${item.mimeType}, isVideo=${item.isVideo}")
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Sin imagen") }
+        return
+    }
 
+    // 🔥 Fuerza SIEMPRE reproducir un vídeo de prueba y sal de la función
+    Log.d(TAG, ">>> FORZADO: reproduciendo URL de prueba")
+    VideoPlayer(
+        uri = Uri.parse("https://storage.googleapis.com/exoplayer-test-media-1/mp4/480x270/matrix.mp4"),
+        modifier = Modifier.fillMaxSize(),
+        autoPlay = true,
+        loop = false,
+        mute = false,
+        showControls = true
+    )
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // A partir de aquí no se ejecuta mientras esté el return anterior.
+    // Cuando verifiques que el player funciona, borra el bloque de arriba y
+    // deja el código original de imagen/vídeo.
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    // Intenta resolver el MIME real del Uri (por si el del item está vacío o es incorrecto)
+    val realMime = remember(item.uri) {
+        runCatching { ctx.contentResolver.getType(item.uri) }.getOrNull()
+    }
+
+    // Decide si es vídeo usando varias fuentes
+    val isVideoResolved = item.isVideo ||
+            item.mimeType.startsWith("video/") ||
+            (realMime?.startsWith("video/") == true)
+
+    Log.d(
+        TAG,
+        "MediaCard render → uri=${item.uri}, isVideoFlag=${item.isVideo}, " +
+                "mimeItem=${item.mimeType}, mimeResolver=$realMime, isVideoResolved=$isVideoResolved"
+    )
+
+    if (isVideoResolved) {
+        VideoPlayer(
+            uri = item.uri,
+            modifier = Modifier.fillMaxSize(),
+            autoPlay = true,
+            loop = true,
+            mute = false,
+            showControls = true
+        )
+        return
+    } else {
         val request = ImageRequest.Builder(ctx)
             .data(item.uri)
-            .apply {
-                if (item.isVideo) {
-                    setParameter("video_frame_millis", 0L)
-                    Log.d(TAG, "MediaCard: es vídeo → solicitando frame inicial")
-                }
-            }
             .listener(
-                onStart = { Log.d(TAG, "Coil onStart → uri=${item.uri}") },
-                onSuccess = { req, result ->
-                    Log.d(TAG, "Coil onSuccess → uri=${req.data}, size=${result.drawable.intrinsicWidth}x${result.drawable.intrinsicHeight}")
+                onStart   = { Log.d(TAG, "Coil onStart → uri=${item.uri}") },
+                onSuccess = { req, res ->
+                    Log.d(TAG, "Coil onSuccess → uri=${req.data}, size=${res.drawable.intrinsicWidth}x${res.drawable.intrinsicHeight}")
                 },
-                onError = { req, throwable ->
-                    Log.e(TAG, "Coil onError → uri=${req.data}, error=${throwable.throwable.message}", throwable.throwable)
+                onError   = { req, t ->
+                    Log.e(TAG, "Coil onError → uri=${req.data}, error=${t.throwable.message}", t.throwable)
                 },
-                onCancel = { Log.w(TAG, "Coil onCancel → uri=${item.uri}") }
+                onCancel  = { Log.w(TAG, "Coil onCancel → uri=${item.uri}") }
             )
             .build()
 
