@@ -14,8 +14,8 @@
                         <option name="values">
                           <map>
                             <entry key="assetSourceType" value="FILE" />
-                            <entry key="outputName" value="ic_delete" />
-                            <entry key="sourceFile" value="C:\Users\peorr\Desktop\SwipeClean\app\src\main\res\drawable\ic_delete.svg" />
+                            <entry key="outputName" value="back" />
+                            <entry key="sourceFile" value="C:\Users\peorr\Desktop\SwipeClean\app\src\main\res\drawable\back.svg" />
                           </map>
                         </option>
                       </PersistentState>

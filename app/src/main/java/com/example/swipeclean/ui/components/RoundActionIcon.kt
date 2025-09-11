@@ -8,6 +8,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.Dp
 
 @Composable
 fun RoundActionIcon(
@@ -15,11 +16,12 @@ fun RoundActionIcon(
     contentDesc: String,
     onClick: () -> Unit,
     container: Color,
-    content: Color
+    content: Color,
+    size: Dp = 64.dp // por defecto
 ) {
     FilledIconButton(
         onClick = onClick,
-        modifier = Modifier.size(64.dp),
+        modifier = Modifier.size(size),
         colors = IconButtonDefaults.filledIconButtonColors(
             containerColor = container,
             contentColor = content
@@ -28,7 +30,8 @@ fun RoundActionIcon(
         Icon(
             painter = painterResource(icon),
             contentDescription = contentDesc,
-            modifier = Modifier.size(28.dp)
+            modifier = Modifier.size(size * 0.4f) // icono proporcional
         )
     }
 }
+

@@ -1,5 +1,6 @@
 package com.example.swipeclean
 
+import android.content.Intent
 import android.content.IntentSender
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
@@ -17,6 +18,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -24,93 +26,91 @@ import coil.size.Size
 import com.example.swipeclean.ui.components.RoundActionIcon
 import com.madglitch.swipeclean.GalleryViewModel
 
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CardScreen(
-    vm: GalleryViewModel,
-    autoBatchSize: Int = 5 // confirma en lote cada N elementos marcados
-) {
+fun CardScreen(vm: GalleryViewModel) {
     val items by vm.items.collectAsState()
     val index by vm.index.collectAsState()
-    val context = LocalContext.current
-
-    // Launcher para ejecutar el IntentSender (API 30+)
-    val intentSenderLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartIntentSenderForResult()
-    ) { /* opcional: comprobar resultCode */ }
-
-    // Confirma el lote si toca (usa compat para API<30)
-    fun maybeConfirmTrashBatch() {
-        if (vm.pendingCount() > 0 &&
-            (vm.pendingCount() >= autoBatchSize || index >= items.size)
-        ) {
-            vm.confirmTrashCompat(context) { sender: IntentSender ->
-                intentSenderLauncher.launch(
-                    IntentSenderRequest.Builder(sender).build()
-                )
-            }
-        }
-    }
+    val ctx = LocalContext.current
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("SwipeClean") }) },
+        topBar = {
+            TopAppBar(
+                title = { Text("SwipeClean") },
+                navigationIcon = {
+                    IconButton(onClick = { vm.undo() }) {
+                        Icon(painterResource(R.drawable.ic_undo), contentDescription = "Atrás")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = {
+                        // Ir a revisión manualmente (sin pedir permisos aquí)
+                        ctx.startActivity(
+                            Intent(ctx, ReviewActivity::class.java).apply {
+                                putParcelableArrayListExtra(
+                                    "PENDING_URIS",
+                                    ArrayList(vm.getPendingTrash())
+                                )
+                            }
+                        )
+                    }) {
+                        Icon(painterResource(R.drawable.ic_next), contentDescription = "Revisión")
+                    }
+                }
+            )
+        },
         bottomBar = {
             Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween
+                Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 32.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 RoundActionIcon(
                     icon = R.drawable.ic_delete,
                     contentDesc = "Borrar",
-                    onClick = {
-                        vm.markForTrash()
-                        maybeConfirmTrashBatch()
-                    },
+                    onClick = { vm.markForTrash() }, // <--- SIN confirmar aquí
                     container = MaterialTheme.colorScheme.errorContainer,
-                    content = MaterialTheme.colorScheme.onErrorContainer
+                    content   = MaterialTheme.colorScheme.onErrorContainer,
+                    size = 80.dp
                 )
-
                 RoundActionIcon(
                     icon = R.drawable.ic_check,
                     contentDesc = "Guardar",
                     onClick = { vm.keep() },
                     container = MaterialTheme.colorScheme.primaryContainer,
-                    content = MaterialTheme.colorScheme.onPrimaryContainer
+                    content   = MaterialTheme.colorScheme.onPrimaryContainer,
+                    size = 80.dp
                 )
             }
         }
-
-    )
-    { padding ->
-        Box(
-            Modifier
-                .fillMaxSize()
-                .padding(padding)
-        ) {
+    ) { padding ->
+        Box(Modifier.fillMaxSize().padding(padding)) {
             val media = items.getOrNull(index)
-
             if (media == null) {
-                // Al llegar al final, si quedan pendientes, confirma el lote.
-                LaunchedEffect(Unit) { maybeConfirmTrashBatch() }
-                Text(
-                    text = "No hay más elementos",
-                    modifier = Modifier.align(Alignment.Center)
-                )
+                // Fin de cola: ir automáticamente a ReviewActivity
+                LaunchedEffect(Unit) {
+                    ctx.startActivity(
+                        Intent(ctx, ReviewActivity::class.java).apply {
+                            putParcelableArrayListExtra(
+                                "PENDING_URIS",
+                                ArrayList(vm.getPendingTrash())
+                            )
+                        }
+                    )
+                }
+                Text("No hay más elementos", Modifier.align(Alignment.Center))
             } else {
                 SwipeableMediaCard(
                     item = media,
-                    onSwipedLeft = {
-                        vm.markForTrash()
-                        maybeConfirmTrashBatch()
-                    },
+                    onSwipedLeft = { vm.markForTrash() }, // <--- SIN confirmar aquí
                     onSwipedRight = { vm.keep() }
                 )
             }
         }
     }
 }
+
 
 @Composable
 fun SwipeableMediaCard(

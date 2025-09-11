@@ -74,6 +74,8 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
         onNeedsUserConfirm(pi.intentSender)
         pendingTrash.clear()
     }
+    // GalleryViewModel.kt
+    fun getPendingTrash(): List<Uri> = pendingTrash.toList()
 
     /**
      * Compat para minSdk 26:
