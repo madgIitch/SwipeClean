@@ -3,7 +3,6 @@ package com.example.swipeclean
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
-import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
@@ -31,13 +30,12 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import coil.size.Size
 import com.example.swipeclean.ui.components.AdaptiveBackdrop
-import com.example.swipeclean.ui.components.CounterPill
+import com.example.swipeclean.ui.components.FancyTopBar
 import com.example.swipeclean.ui.components.RoundActionIcon
 import com.example.swipeclean.ui.components.SwipeFeedbackOverlay
 import com.madglitch.swipeclean.GalleryViewModel
@@ -54,7 +52,6 @@ fun CardScreen(vm: GalleryViewModel) {
     val total = items.size
     val clampedIndex = if (total > 0) index.coerceIn(0, total - 1) else 0
     val shownIndex = if (total > 0) clampedIndex + 1 else 0
-    val isEmpty = total == 0
     val currentItem = items.getOrNull(clampedIndex)
 
     // Launcher para ReviewActivity -> recibe staged/confirmed
@@ -83,34 +80,23 @@ fun CardScreen(vm: GalleryViewModel) {
         if (confirmed.isNotEmpty()) vm.confirmDeletionConfirmed(confirmed)
     }
 
+    // 🔑 Transparente para que se vea el AdaptiveBackdrop detrás
     Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
+        containerColor = Color.Transparent,
         contentColor = MaterialTheme.colorScheme.onBackground,
         topBar = {
-            TopAppBar(
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("SwipeClean")
-                        Spacer(Modifier.width(12.dp))
-                        CounterPill(current = shownIndex, total = total)
+            FancyTopBar(
+                title = "SwipeClean",
+                shownIndex = shownIndex,
+                total = total,
+                onUndo = { vm.undo() },
+                onReview = {
+                    val toReview = vm.getPendingForReview()
+                    if (toReview.isEmpty()) return@FancyTopBar
+                    val intent = Intent(ctx, ReviewActivity::class.java).apply {
+                        putParcelableArrayListExtra(EXTRA_PENDING_URIS, toReview)
                     }
-                },
-                navigationIcon = {
-                    IconButton(onClick = { vm.undo() }, enabled = !isEmpty) {
-                        Icon(painterResource(R.drawable.ic_undo), contentDescription = "Deshacer")
-                    }
-                },
-                actions = {
-                    IconButton(onClick = {
-                        val toReview = vm.getPendingForReview()
-                        if (toReview.isEmpty()) return@IconButton
-                        val intent = Intent(ctx, ReviewActivity::class.java).apply {
-                            putParcelableArrayListExtra(EXTRA_PENDING_URIS, toReview)
-                        }
-                        reviewLauncher.launch(intent)
-                    }) {
-                        Icon(painterResource(R.drawable.ic_next), contentDescription = "Revisión")
-                    }
+                    reviewLauncher.launch(intent)
                 }
             )
         },
@@ -169,7 +155,6 @@ fun CardScreen(vm: GalleryViewModel) {
                                 MediaSurface(item = itemAt)
                             }
                         } else {
-                            // Fallback muy puntual si cambia la lista en caliente
                             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 Text("Cargando…")
                             }
@@ -178,8 +163,6 @@ fun CardScreen(vm: GalleryViewModel) {
                 }
             }
         }
-
-
     }
 }
 
@@ -227,19 +210,16 @@ private fun SwipeableCard(
                     onDragEnd = {
                         when {
                             dragX > thresholdPx -> {
-                                // sale a la derecha
                                 rawOffsetX = screenWidth * 2f
                                 onSwipeRight()
                                 rawOffsetX = 0f
                             }
                             dragX < -thresholdPx -> {
-                                // sale a la izquierda
                                 rawOffsetX = -screenWidth * 2f
                                 onSwipeLeft()
                                 rawOffsetX = 0f
                             }
                             else -> {
-                                // vuelve al centro
                                 rawOffsetX = 0f
                             }
                         }
@@ -253,6 +233,7 @@ private fun SwipeableCard(
             .clip(RoundedCornerShape(24.dp)),
         shape = RoundedCornerShape(24.dp)
     ) {
+        // La card mantiene su surface para contraste de controles overlay
         Box(Modifier.background(MaterialTheme.colorScheme.surface)) {
             content()
             SwipeFeedbackOverlay(progress = progress)
@@ -266,7 +247,6 @@ private fun MediaSurface(
     item: MediaItem,
     forceTestVideo: Boolean = false
 ) {
-    val TAG = "SwipeClean/MediaSurface"
     val ctx = LocalContext.current
 
     val resolvedMime = remember(item.uri, item.mimeType, item.isVideo) {
@@ -277,7 +257,6 @@ private fun MediaSurface(
             (resolvedMime?.startsWith("video/") == true)
 
     if (isVideo) {
-        // Vídeos como ya lo tenías
         VideoPlayer(
             uri = item.uri,
             modifier = Modifier.fillMaxSize(),
@@ -287,11 +266,10 @@ private fun MediaSurface(
             showControls = true
         )
     } else {
-        // 👇 Imagen SIN upscale: Inside + fondo negro
+        // ❗ Quitamos el fondo negro para que “asome” el AdaptiveBackdrop
         Box(
-            Modifier
-                .fillMaxSize()
-                .background(Color.Black), // fondo para letterboxing vertical si sobra
+            modifier = Modifier
+                .fillMaxSize(),
             contentAlignment = Alignment.Center
         ) {
             SubcomposeAsyncImage(
@@ -302,21 +280,17 @@ private fun MediaSurface(
                     .allowHardware(false)
                     .build(),
                 contentDescription = null,
-                // 👇 aquí el cambio importante
-                contentScale = ContentScale.FillWidth,
+                contentScale = ContentScale.FillWidth, // mantiene ancho de la card
                 modifier = Modifier.fillMaxWidth(),
-                loading = {
-                    CircularProgressIndicator(Modifier.padding(24.dp))
-                },
+                loading = { CircularProgressIndicator(Modifier.padding(24.dp)) },
                 error = {
                     Text(
                         "Error al cargar",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = Color.White
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                 }
             )
         }
-
     }
 }
