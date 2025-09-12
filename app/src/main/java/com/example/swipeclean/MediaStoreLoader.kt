@@ -21,8 +21,8 @@ fun Context.loadMedia(filter: MediaFilter = MediaFilter.ALL): List<MediaItem> {
     val projection = arrayOf(
         MediaStore.Files.FileColumns._ID,
         MediaStore.Files.FileColumns.MIME_TYPE,
-        MediaStore.Files.FileColumns.DATE_TAKEN, // puede ser 0 en algunos dispositivos
-        MediaStore.Files.FileColumns.DATE_ADDED,
+        MediaStore.MediaColumns.DATE_TAKEN,      // puede ser 0
+        MediaStore.MediaColumns.DATE_ADDED,      // segundos UNIX
         MediaStore.Files.FileColumns.MEDIA_TYPE
     )
 
@@ -48,10 +48,10 @@ fun Context.loadMedia(filter: MediaFilter = MediaFilter.ALL): List<MediaItem> {
         )
     }
 
-    // Orden por DATE_TAKEN descendente; como respaldo usa DATE_ADDED
+    // Orden: primero DATE_TAKEN (ms), fallback DATE_ADDED (s)
     val sortOrder =
-        "${MediaStore.Files.FileColumns.DATE_TAKEN} DESC, " +
-                "${MediaStore.Files.FileColumns.DATE_ADDED} DESC"
+        "${MediaStore.MediaColumns.DATE_TAKEN} DESC, " +
+                "${MediaStore.MediaColumns.DATE_ADDED} DESC"
 
     contentResolver.query(
         collection,
@@ -60,19 +60,24 @@ fun Context.loadMedia(filter: MediaFilter = MediaFilter.ALL): List<MediaItem> {
         args,
         sortOrder
     )?.use { cursor ->
-        val idCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
-        val mimeCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MIME_TYPE)
-        val takenCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_TAKEN)
-        val addedCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_ADDED)
-        val typeCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MEDIA_TYPE)
+        val idCol    = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
+        val mimeCol  = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MIME_TYPE)
+        val takenCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_TAKEN)
+        val addedCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_ADDED)
+        val typeCol  = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MEDIA_TYPE)
 
         while (cursor.moveToNext()) {
-            val id = cursor.getLong(idCol)
-            val mime = cursor.getString(mimeCol) ?: ""
+            val id        = cursor.getLong(idCol)
+            val rawMime   = cursor.getString(mimeCol) ?: ""
             val mediaType = cursor.getInt(typeCol)
-            val isVideo = mediaType == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO
 
-            val dateTaken = cursor.getLong(takenCol).let { dt ->
+            val isVideo = when (mediaType) {
+                MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO -> true
+                MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE -> false
+                else -> rawMime.startsWith("video/")
+            }
+
+            val dateTakenMs = cursor.getLong(takenCol).let { dt ->
                 if (dt != 0L) dt else cursor.getLong(addedCol) * 1000L
             }
 
@@ -83,10 +88,11 @@ fun Context.loadMedia(filter: MediaFilter = MediaFilter.ALL): List<MediaItem> {
             }
 
             items += MediaItem(
+                id = id,
                 uri = uri,
-                mimeType = mime,
+                mimeType = if (rawMime.isNotEmpty()) rawMime else if (isVideo) "video/*" else "image/*",
                 isVideo = isVideo,
-                dateTaken = dateTaken
+                dateTaken = dateTakenMs
             )
         }
     }

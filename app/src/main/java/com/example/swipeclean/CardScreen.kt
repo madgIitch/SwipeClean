@@ -47,6 +47,7 @@ import kotlin.math.abs
 fun CardScreen(vm: GalleryViewModel) {
     val items by vm.items.collectAsState()
     val index by vm.index.collectAsState()
+    val filter by vm.filter.collectAsState() // <-- estado del filtro para el TopBar
     val ctx = LocalContext.current
 
     val total = items.size
@@ -80,7 +81,7 @@ fun CardScreen(vm: GalleryViewModel) {
         if (confirmed.isNotEmpty()) vm.confirmDeletionConfirmed(confirmed)
     }
 
-    // 🔑 Transparente para que se vea el AdaptiveBackdrop detrás
+    // Transparente para ver el AdaptiveBackdrop detrás
     Scaffold(
         containerColor = Color.Transparent,
         contentColor = MaterialTheme.colorScheme.onBackground,
@@ -97,7 +98,9 @@ fun CardScreen(vm: GalleryViewModel) {
                         putParcelableArrayListExtra(EXTRA_PENDING_URIS, toReview)
                     }
                     reviewLauncher.launch(intent)
-                }
+                },
+                currentFilter = filter,                 // <-- filtro actual
+                onFilterChange = { vm.setFilter(it) }   // <-- cambia filtro
             )
         },
         bottomBar = {
@@ -266,10 +269,9 @@ private fun MediaSurface(
             showControls = true
         )
     } else {
-        // ❗ Quitamos el fondo negro para que “asome” el AdaptiveBackdrop
+        // Sin fondo negro para que “asome” el AdaptiveBackdrop
         Box(
-            modifier = Modifier
-                .fillMaxSize(),
+            modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
         ) {
             SubcomposeAsyncImage(
@@ -280,7 +282,7 @@ private fun MediaSurface(
                     .allowHardware(false)
                     .build(),
                 contentDescription = null,
-                contentScale = ContentScale.FillWidth, // mantiene ancho de la card
+                contentScale = ContentScale.FillWidth,   // ancho de la card
                 modifier = Modifier.fillMaxWidth(),
                 loading = { CircularProgressIndicator(Modifier.padding(24.dp)) },
                 error = {

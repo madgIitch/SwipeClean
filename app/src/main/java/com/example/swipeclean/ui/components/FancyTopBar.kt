@@ -10,6 +10,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import com.example.swipeclean.R
+import com.tuempresa.swipeclean.MediaFilter
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -19,6 +20,8 @@ fun FancyTopBar(
     total: Int,
     onUndo: () -> Unit,
     onReview: () -> Unit,
+    currentFilter: MediaFilter,
+    onFilterChange: (MediaFilter) -> Unit
 ) {
     CenterAlignedTopAppBar(
         windowInsets = TopAppBarDefaults.windowInsets, // respeta status bar
@@ -60,6 +63,7 @@ fun FancyTopBar(
             }
         },
         actions = {
+            // Botón de revisión manual
             IconButton(onClick = onReview) {
                 Icon(
                     painterResource(R.drawable.ic_next),
@@ -67,6 +71,11 @@ fun FancyTopBar(
                     tint = Color(0xFF4CAF50) // ✅ Verde estilo Tinder
                 )
             }
+            // Nuevo: menú desplegable para el filtro
+            FilterDropdown(
+                current = currentFilter,
+                onSelected = onFilterChange
+            )
         }
     )
 }

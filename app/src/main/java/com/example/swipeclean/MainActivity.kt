@@ -2,6 +2,7 @@ package com.example.swipeclean
 
 import android.Manifest
 import android.content.IntentSender
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -19,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.core.content.ContextCompat
 import com.example.swipeclean.ui.theme.SwipeCleanTheme
 import com.google.accompanist.systemuicontroller.rememberSystemUiController
 import com.madglitch.swipeclean.GalleryViewModel
@@ -28,26 +30,36 @@ class MainActivity : ComponentActivity() {
 
     private val vm: GalleryViewModel by viewModels()
 
-    // Diálogos del sistema (trash/delete)
+    // Lanzador para diálogos del sistema (trash/delete)
     private val deleteLauncher = registerForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult()
-    ) { /* opcional: comprobar resultCode */ }
-
-    // Permisos
-    private val permissionsLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { _ ->
-        vm.load(MediaFilter.ALL)
+    ) {
+        // Opcional: comprobar resultCode si quieres diferenciar ACEPTAR / CANCELAR
+        // if (it.resultCode == RESULT_OK) { vm.onTrashCommitted() }
     }
 
-    @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE) // bájalo si tu minSdk lo requiere
+    // Lanzador de permisos
+    private val permissionsLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { result ->
+        // ¿Se ha concedido al menos uno ahora?
+        val grantedNow = result.values.any { it }
+        if (grantedNow) {
+            // Importante: vm.load() NO debe resetear el índice a 0; debe restaurar por currentUri/index
+            vm.load(MediaFilter.ALL)
+        }
+        // Si ya estaban concedidos antes, no hacemos nada: el init del VM ya restauró.
+    }
+
+    @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        requestGalleryPermissions()
+
+        // Pide permisos solo si faltan; si ya estaban, no toques nada.
+        requestGalleryPermissionsIfNeeded()
 
         setContent {
             SwipeCleanTheme {
-                // === System bars transparentes y con iconos adecuados ===
                 SetupSystemBars()
 
                 Surface(
@@ -56,19 +68,40 @@ class MainActivity : ComponentActivity() {
                         .background(MaterialTheme.colorScheme.background),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    // CardScreen ya gestiona abrir ReviewActivity y procesar el resultado
+                    // Si tu CardScreen necesita lanzar el IntentSender del sistema,
+                    // puedes exponer un callback y pasar ::launchIntentSender.
+                    // Ahora mismo solo pasamos el ViewModel.
                     CardScreen(vm = vm)
                 }
             }
         }
     }
 
+    override fun onStop() {
+        super.onStop()
+        // Asegura que el último currentUri/index quedan guardados incluso si el sistema mata la app
+        vm.persistNow()
+    }
+
+    // ------------------------------------------------------------------------
+    // Helpers
+    // ------------------------------------------------------------------------
     private fun launchIntentSender(sender: IntentSender) {
         deleteLauncher.launch(IntentSenderRequest.Builder(sender).build())
     }
 
-    private fun requestGalleryPermissions() {
-        val perms = if (Build.VERSION.SDK_INT >= 33) {
+    private fun requestGalleryPermissionsIfNeeded() {
+        val perms = requiredGalleryPermissions()
+        val alreadyGranted = perms.all { isGranted(it) }
+
+        if (!alreadyGranted) {
+            permissionsLauncher.launch(perms)
+        }
+        // Si ya estaban concedidos, no dispares vm.load(): el ViewModel restaurará solo en su init.
+    }
+
+    private fun requiredGalleryPermissions(): Array<String> {
+        return if (Build.VERSION.SDK_INT >= 33) {
             arrayOf(
                 Manifest.permission.READ_MEDIA_IMAGES,
                 Manifest.permission.READ_MEDIA_VIDEO
@@ -76,8 +109,10 @@ class MainActivity : ComponentActivity() {
         } else {
             arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
         }
-        permissionsLauncher.launch(perms)
     }
+
+    private fun isGranted(permission: String): Boolean =
+        ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -86,7 +121,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun SetupSystemBars() {
     val sys = rememberSystemUiController()
-    val darkIcons = !isSystemInDarkTheme() // usa iconos oscuros si no estamos en dark mode
+    val darkIcons = !isSystemInDarkTheme()
     SideEffect {
         sys.setStatusBarColor(Color.Transparent, darkIcons = darkIcons)
         sys.setNavigationBarColor(Color.Transparent, darkIcons = darkIcons)

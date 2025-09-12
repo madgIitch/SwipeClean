@@ -1,24 +1,87 @@
 package com.madglitch.swipeclean
 
+import android.Manifest
 import android.app.Application
 import android.content.Context
 import android.content.IntentSender
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import androidx.annotation.RequiresApi
+import androidx.core.content.ContextCompat
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
+import androidx.datastore.preferences.preferencesDataStore
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.swipeclean.MediaItem
 import com.tuempresa.swipeclean.MediaFilter
 import com.tuempresa.swipeclean.loadMedia
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 
+// ─────────────────────────────────────────────────────────────────────────────
+// DataStore (estado persistente)
+// ─────────────────────────────────────────────────────────────────────────────
+private val Application.userDataStore by preferencesDataStore(name = "swipeclean_user_state")
+
+// Claves legacy (retro-compat)
+private val KEY_INDEX       = intPreferencesKey("index")
+private val KEY_CURRENT_URI = stringPreferencesKey("current_uri")
+private val KEY_PENDING     = stringSetPreferencesKey("pending_uris")
+private val KEY_FILTER      = stringPreferencesKey("filter")
+
+// Claves nuevas por filtro
+private fun keyIndexFor(filter: MediaFilter) = intPreferencesKey("index_${filter.name}")
+private fun keyUriFor(filter: MediaFilter)   = stringPreferencesKey("uri_${filter.name}")
+private fun keyIdFor(filter: MediaFilter)    = stringPreferencesKey("id_${filter.name}") // opcional (si MediaItem.id existe)
+private val KEY_LAST_FILTER = stringPreferencesKey("last_filter")
+
+private data class UserState(
+    val index: Int = 0,
+    val currentUri: String? = null,
+    val pending: Set<String> = emptySet(),
+    val filter: String = "ALL"
+)
+
+private suspend fun readUserState(context: Application): UserState {
+    return context.userDataStore.data.map { p ->
+        UserState(
+            index      = p[KEY_INDEX] ?: 0,
+            currentUri = p[KEY_CURRENT_URI],
+            pending    = p[KEY_PENDING] ?: emptySet(),
+            filter     = p[KEY_FILTER] ?: "ALL"
+        )
+    }.first()
+}
+
+private suspend fun saveUserState(
+    context: Application,
+    index: Int,
+    currentUri: String?,
+    pending: Set<String>,
+    filter: String
+) {
+    context.userDataStore.edit { p ->
+        p[KEY_INDEX] = index
+        if (currentUri != null) p[KEY_CURRENT_URI] = currentUri else p.remove(KEY_CURRENT_URI)
+        p[KEY_PENDING] = pending
+        p[KEY_FILTER]  = filter
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ViewModel
+// ─────────────────────────────────────────────────────────────────────────────
 class GalleryViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---------------------------
@@ -30,8 +93,10 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
     private val _index = MutableStateFlow(0)
     val index: StateFlow<Int> = _index
 
-    // Filtro actual (persistido)
+    // Filtro actual (persistido) + expuesto a la UI
     private var currentFilter: MediaFilter = MediaFilter.ALL
+    private val _filter = MutableStateFlow(MediaFilter.ALL)
+    val filter: StateFlow<MediaFilter> = _filter
 
     // Colas/sets para acciones
     private val pendingTrash = mutableListOf<Uri>()
@@ -49,36 +114,71 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
     // ---------------------------
     init {
         viewModelScope.launch {
-            val s = readUserState(getApplication())
+            val appCtx = getApplication<Application>()
+            val legacy = readUserState(appCtx)
 
-            currentFilter = when (s.filter) {
+            // Último filtro usado (nuevo) con fallback a legacy
+            val lastFilterName = appCtx.userDataStore.data
+                .map { it[KEY_LAST_FILTER] ?: legacy.filter }
+                .first()
+
+            currentFilter = when (lastFilterName) {
                 "IMAGES" -> MediaFilter.IMAGES
                 "VIDEOS" -> MediaFilter.VIDEOS
                 else     -> MediaFilter.ALL
             }
+            _filter.value = currentFilter
 
             pendingTrash.clear()
-            pendingTrash.addAll(s.pending.map(Uri::parse))
+            pendingTrash.addAll(legacy.pending.map(Uri::parse))
 
+            if (!hasGalleryPermissions(appCtx)) {
+                // Sin permisos: restaura índice legacy y sal (evita sobreescribir buen estado).
+                _index.value = legacy.index
+                return@launch
+            }
+
+            // Carga de elementos
             loadInternal(currentFilter)
+
+            // Restauración por-filtro (ID → URI → índice)
+            val prefs = appCtx.userDataStore.data.first()
+            val savedIdStr = prefs[keyIdFor(currentFilter)]
+            val savedUriForFilter = prefs[keyUriFor(currentFilter)]
+            val savedIndexForFilter = prefs[keyIndexFor(currentFilter)] ?: legacy.index
 
             val list = _items.value
 
-            // Si existe la uri guardada, vuelve exactamente a esa;
-            // si no, usa el índice guardado; si tampoco vale, 0.
-            val candidateIndex = s.currentUri?.let { savedUri ->
-                list.indexOfFirst { it.uri.toString() == savedUri }
+            val candidateById = savedIdStr?.toLongOrNull()?.let { id ->
+                list.indexOfFirst { it.id == id } // requiere MediaItem.id: Long?; si no existe, siempre -1
             } ?: -1
 
+            val candidateByUri = if (candidateById < 0 && savedUriForFilter != null) {
+                list.indexOfFirst { it.uri.toString() == savedUriForFilter }
+            } else -1
+
             val restored = when {
-                candidateIndex >= 0 -> candidateIndex
+                candidateById >= 0 -> candidateById
+                candidateByUri >= 0 -> candidateByUri
                 list.isEmpty()      -> 0
-                else                -> s.index.coerceIn(0, list.lastIndex)
+                else                -> savedIndexForFilter.coerceIn(0, list.lastIndex)
             }
 
             _index.value = restored
+            // Guardamos checkpoint inmediato
             persistNow()
         }
+    }
+
+    // ---------------------------
+    // API para la UI: cambiar filtro
+    // ---------------------------
+    fun setFilter(newFilter: MediaFilter) {
+        if (newFilter == _filter.value) return
+        // Checkpoint del filtro actual antes de movernos
+        persistNow()
+        _filter.value = newFilter
+        load(newFilter)
     }
 
     // ---------------------------
@@ -86,10 +186,39 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
     // ---------------------------
     fun load(filter: MediaFilter = MediaFilter.ALL) {
         viewModelScope.launch {
+            _filter.value = filter
             currentFilter = filter
+            val appCtx = getApplication<Application>()
+
+            if (!hasGalleryPermissions(appCtx)) {
+                return@launch
+            }
+
             loadInternal(filter)
-            // Al cambiar filtro, empieza por el primer elemento
-            _index.value = 0
+            val list = _items.value
+
+            // Restaurar por-filtro (ID → URI → índice)
+            val prefs = appCtx.userDataStore.data.first()
+            val savedIdStr = prefs[keyIdFor(filter)]
+            val savedUriForFilter = prefs[keyUriFor(filter)]
+            val savedIndexForFilter = prefs[keyIndexFor(filter)] ?: 0
+
+            val candidateById = savedIdStr?.toLongOrNull()?.let { id ->
+                list.indexOfFirst { it.id == id }
+            } ?: -1
+
+            val candidateByUri = if (candidateById < 0 && savedUriForFilter != null) {
+                list.indexOfFirst { it.uri.toString() == savedUriForFilter }
+            } else -1
+
+            val restored = when {
+                candidateById >= 0 -> candidateById
+                candidateByUri >= 0 -> candidateByUri
+                list.isEmpty()      -> 0
+                else                -> savedIndexForFilter.coerceIn(0, list.lastIndex)
+            }
+
+            _index.value = restored
             history.clear()
             persistAsync()
         }
@@ -120,55 +249,74 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun next() {
         advanceIndexWrap()
-        persistNow()
+        persistNow() // checkpoint inmediato
     }
 
     private fun prev() {
         retreatIndexWrap()
-        persistNow()
+        persistNow() // checkpoint inmediato
     }
 
     // ---------------------------
-    // Persistencia ligera
+    // Persistencia (síncrona/async)
     // ---------------------------
-    private fun persistNow() {
-        val ctx = getApplication<Application>()
-        val safeIndex = if (_items.value.isEmpty()) 0 else
-            _index.value.coerceIn(0, _items.value.lastIndex)
+    fun persistNow() {
+        val appCtx = getApplication<Application>()
+        if (!hasGalleryPermissions(appCtx)) return
 
-        // Escribir de forma síncrona en IO (por si la app muere)
+        val safeIndex = if (_items.value.isEmpty()) 0
+        else _index.value.coerceIn(0, _items.value.lastIndex)
+
+        val currentUriStr = current()?.uri?.toString()
+        val currentIdStr  = current()?.id?.toString() // si MediaItem.id existe
+
+        // Síncrono en IO para resistir cierre brusco
         runCatching {
             runBlocking(Dispatchers.IO) {
-                saveUserState(
-                    context = ctx,
-                    index = safeIndex,
-                    currentUri = current()?.uri?.toString(),
-                    pending = pendingTrash.map(Uri::toString).toSet(),
-                    filter = when (currentFilter) {
-                        MediaFilter.IMAGES -> "IMAGES"
-                        MediaFilter.VIDEOS -> "VIDEOS"
-                        MediaFilter.ALL    -> "ALL"
-                    }
-                )
+                appCtx.userDataStore.edit { p ->
+                    // Por filtro actual
+                    p[keyIndexFor(currentFilter)] = safeIndex
+                    if (currentUriStr != null) p[keyUriFor(currentFilter)] = currentUriStr else p.remove(keyUriFor(currentFilter))
+                    if (currentIdStr  != null) p[keyIdFor(currentFilter)]  = currentIdStr  else p.remove(keyIdFor(currentFilter))
+
+                    // Último filtro usado
+                    p[KEY_LAST_FILTER] = currentFilter.name
+
+                    // Legacy (retro-compat)
+                    p[KEY_INDEX] = safeIndex
+                    if (currentUriStr != null) p[KEY_CURRENT_URI] = currentUriStr else p.remove(KEY_CURRENT_URI)
+                    p[KEY_FILTER] = currentFilter.name
+                    p[KEY_PENDING] = pendingTrash.map(Uri::toString).toSet()
+                }
             }
         }
     }
 
-    private fun persistAsync() = viewModelScope.launch {
-        val safeIndex = if (_items.value.isEmpty()) 0 else
-            _index.value.coerceIn(0, _items.value.lastIndex)
+    private fun persistAsync() = viewModelScope.launch(Dispatchers.IO) {
+        val appCtx = getApplication<Application>()
+        if (!hasGalleryPermissions(appCtx)) return@launch
 
-        saveUserState(
-            context = getApplication(),
-            index = safeIndex,
-            currentUri = current()?.uri?.toString(),
-            pending = pendingTrash.map(Uri::toString).toSet(),
-            filter = when (currentFilter) {
-                MediaFilter.IMAGES -> "IMAGES"
-                MediaFilter.VIDEOS -> "VIDEOS"
-                MediaFilter.ALL    -> "ALL"
-            }
-        )
+        val safeIndex = if (_items.value.isEmpty()) 0
+        else _index.value.coerceIn(0, _items.value.lastIndex)
+
+        val currentUriStr = current()?.uri?.toString()
+        val currentIdStr  = current()?.id?.toString()
+
+        appCtx.userDataStore.edit { p ->
+            // Por filtro actual
+            p[keyIndexFor(currentFilter)] = safeIndex
+            if (currentUriStr != null) p[keyUriFor(currentFilter)] = currentUriStr else p.remove(keyUriFor(currentFilter))
+            if (currentIdStr  != null) p[keyIdFor(currentFilter)]  = currentIdStr  else p.remove(keyIdFor(currentFilter))
+
+            // Último filtro usado
+            p[KEY_LAST_FILTER] = currentFilter.name
+
+            // Legacy (retro-compat)
+            p[KEY_INDEX] = safeIndex
+            if (currentUriStr != null) p[KEY_CURRENT_URI] = currentUriStr else p.remove(KEY_CURRENT_URI)
+            p[KEY_FILTER] = currentFilter.name
+            p[KEY_PENDING] = pendingTrash.map(Uri::toString).toSet()
+        }
     }
 
     // ---------------------------
@@ -204,7 +352,7 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
                 persistAsync()
             }
             is UserAction.Keep -> {
-                // No hay estado que revertir salvo navegación
+                // Nada que revertir salvo navegación
             }
         }
     }
@@ -243,33 +391,37 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
 
     fun clearStage() = stagedForReview.clear()
 
-    @RequiresApi(Build.VERSION_CODES.R)
+    /**
+     * Android 11+ (API 30): manda a Papelera con diálogo del sistema.
+     * No vacía la cola: espera a que la actividad informe del resultado.
+     */
     fun confirmTrash(
         context: Context,
         onNeedsUserConfirm: (IntentSender) -> Unit
     ) {
         if (pendingTrash.isEmpty()) return
-        val pi = MediaStore.createTrashRequest(
-            context.contentResolver,
-            pendingTrash.toList(),
-            /* isTrashed = */ true
-        )
-        onNeedsUserConfirm(pi.intentSender)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val pi = MediaStore.createTrashRequest(
+                context.contentResolver,
+                pendingTrash.toList(),
+                /* isTrashed = */ true
+            )
+            onNeedsUserConfirm(pi.intentSender)
+        } else {
+            // Compat < 30 → borrar directamente
+            confirmTrashCompat(context, onNeedsUserConfirm)
+        }
     }
 
+    /**
+     * Compat para API < 30: borra directamente sin diálogo.
+     */
     fun confirmTrashCompat(
         context: Context,
-        onNeedsUserConfirm: (IntentSender) -> Unit
+        @Suppress("UNUSED_PARAMETER") onNeedsUserConfirm: (IntentSender) -> Unit
     ) {
         if (pendingTrash.isEmpty()) return
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            // En 30+ delega al flujo moderno
-            confirmTrash(context, onNeedsUserConfirm)
-            return
-        }
-
-        // API antiguas: borrar directamente (sin diálogo del sistema)
         viewModelScope.launch {
             withContext(Dispatchers.IO) {
                 val cr = context.contentResolver
@@ -288,6 +440,22 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
             _index.value = if (n == 0) 0 else ((_index.value % n) + n) % n
 
             persistAsync()
+        }
+    }
+
+    // ---------------------------
+    // Permisos
+    // ---------------------------
+    private fun hasGalleryPermissions(ctx: Context): Boolean {
+        return if (Build.VERSION.SDK_INT >= 33) {
+            // Con que tenga uno de los dos nos vale según filtro; OR mantiene tu lógica actual
+            ContextCompat.checkSelfPermission(ctx, Manifest.permission.READ_MEDIA_IMAGES) ==
+                    PackageManager.PERMISSION_GRANTED ||
+                    ContextCompat.checkSelfPermission(ctx, Manifest.permission.READ_MEDIA_VIDEO) ==
+                    PackageManager.PERMISSION_GRANTED
+        } else {
+            ContextCompat.checkSelfPermission(ctx, Manifest.permission.READ_EXTERNAL_STORAGE) ==
+                    PackageManager.PERMISSION_GRANTED
         }
     }
 }
