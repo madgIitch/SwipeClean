@@ -11,11 +11,16 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.annotation.RequiresApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import com.example.swipeclean.ui.theme.SwipeCleanTheme
+import com.google.accompanist.systemuicontroller.rememberSystemUiController
 import com.madglitch.swipeclean.GalleryViewModel
 import com.tuempresa.swipeclean.MediaFilter
 
@@ -35,13 +40,16 @@ class MainActivity : ComponentActivity() {
         vm.load(MediaFilter.ALL)
     }
 
-    @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+    @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE) // bájalo si tu minSdk lo requiere
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         requestGalleryPermissions()
 
         setContent {
             SwipeCleanTheme {
+                // === System bars transparentes y con iconos adecuados ===
+                SetupSystemBars()
+
                 Surface(
                     modifier = Modifier
                         .fillMaxSize()
@@ -69,5 +77,18 @@ class MainActivity : ComponentActivity() {
             arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
         }
         permissionsLauncher.launch(perms)
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// System bars helper
+// ─────────────────────────────────────────────────────────────────────────────
+@Composable
+fun SetupSystemBars() {
+    val sys = rememberSystemUiController()
+    val darkIcons = !isSystemInDarkTheme() // usa iconos oscuros si no estamos en dark mode
+    SideEffect {
+        sys.setStatusBarColor(Color.Transparent, darkIcons = darkIcons)
+        sys.setNavigationBarColor(Color.Transparent, darkIcons = darkIcons)
     }
 }

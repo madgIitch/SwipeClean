@@ -19,13 +19,13 @@ fun CounterPill(
         modifier = modifier,
         shape = RoundedCornerShape(999.dp),
         tonalElevation = 2.dp,
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+        contentColor = MaterialTheme.colorScheme.onSurface
     ) {
         Text(
             text = "$current / $total",
             style = MaterialTheme.typography.labelLarge,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
         )
     }
 }

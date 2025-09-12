@@ -48,6 +48,8 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.4")
     implementation(libs.androidx.activity.compose)
     implementation("androidx.datastore:datastore-preferences:1.1.1")
+    implementation ("com.google.accompanist:accompanist-systemuicontroller:0.34.0")
+
 
     // Compose (BOM)
     implementation(platform(libs.androidx.compose.bom))
@@ -55,6 +57,7 @@ dependencies {
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
+    implementation(libs.androidx.palette.ktx)
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
     androidTestImplementation(platform(libs.androidx.compose.bom))

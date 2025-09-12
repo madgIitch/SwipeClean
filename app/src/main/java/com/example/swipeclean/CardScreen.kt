@@ -7,6 +7,14 @@ import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
@@ -16,22 +24,26 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import coil.size.Size
+import com.example.swipeclean.ui.components.AdaptiveBackdrop
 import com.example.swipeclean.ui.components.CounterPill
 import com.example.swipeclean.ui.components.RoundActionIcon
+import com.example.swipeclean.ui.components.SwipeFeedbackOverlay
 import com.madglitch.swipeclean.GalleryViewModel
+import kotlin.math.abs
 
-
-
-@RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE) // bájalo si tu minSdk lo requiere
+@RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CardScreen(vm: GalleryViewModel) {
@@ -43,6 +55,7 @@ fun CardScreen(vm: GalleryViewModel) {
     val clampedIndex = if (total > 0) index.coerceIn(0, total - 1) else 0
     val shownIndex = if (total > 0) clampedIndex + 1 else 0
     val isEmpty = total == 0
+    val currentItem = items.getOrNull(clampedIndex)
 
     // Launcher para ReviewActivity -> recibe staged/confirmed
     val reviewLauncher = rememberLauncherForActivityResult(
@@ -67,7 +80,7 @@ fun CardScreen(vm: GalleryViewModel) {
             } ?: arrayListOf()
 
         if (staged.isNotEmpty()) vm.applyStagedSelection(staged)
-        if (confirmed.isNotEmpty()) vm.confirmDeletionConfirmed(confirmed) // <- ahora recarga y ajusta índice
+        if (confirmed.isNotEmpty()) vm.confirmDeletionConfirmed(confirmed)
     }
 
     Scaffold(
@@ -128,65 +141,122 @@ fun CardScreen(vm: GalleryViewModel) {
             }
         }
     ) { padding ->
-        Box(
-            Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .background(MaterialTheme.colorScheme.background)
-        ) {
-            val media = items.getOrNull(clampedIndex)
-            if (media != null) {
-                SwipeableMediaCard(
-                    item = media,
-                    onSwipedLeft  = { vm.markForTrash() },
-                    onSwipedRight = { vm.keep() }
-                )
-            } else {
-                Text("No hay elementos en la galería", Modifier.align(Alignment.Center))
+        // Fondo adaptativo según la imagen actual
+        AdaptiveBackdrop(currentItem) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+            ) {
+                if (total == 0) {
+                    Text("No hay elementos en la galería", Modifier.align(Alignment.Center))
+                } else {
+                    // Fade elegante entre ítems usando el ÍNDICE como estado
+                    AnimatedContent(
+                        targetState = clampedIndex,
+                        transitionSpec = {
+                            fadeIn(animationSpec = tween(180)) togetherWith
+                                    fadeOut(animationSpec = tween(120))
+                        },
+                        label = "MediaCrossfade"
+                    ) { idx ->
+                        val itemAt = items.getOrNull(idx)
+                        if (itemAt != null) {
+                            SwipeableCard(
+                                onSwipeLeft  = { vm.markForTrash() },
+                                onSwipeRight = { vm.keep() }
+                            ) {
+                                MediaSurface(item = itemAt)
+                            }
+                        } else {
+                            // Fallback muy puntual si cambia la lista en caliente
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text("Cargando…")
+                            }
+                        }
+                    }
+                }
             }
         }
+
+
     }
 }
 
 @Composable
-fun SwipeableMediaCard(
-    item: MediaItem,
-    onSwipedLeft: () -> Unit,
-    onSwipedRight: () -> Unit
+private fun SwipeableCard(
+    onSwipeLeft: () -> Unit,
+    onSwipeRight: () -> Unit,
+    content: @Composable () -> Unit
 ) {
-    val onLeft by rememberUpdatedState(onSwipedLeft)
-    val onRight by rememberUpdatedState(onSwipedRight)
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val screenWidth = LocalConfiguration.current.screenWidthDp
+    val thresholdPx = (screenWidth * 0.35f) // umbral ~35% del ancho de pantalla
 
-    var offsetX by remember { mutableStateOf(0f) }
-    val threshold = 200f
+    var rawOffsetX by remember { mutableFloatStateOf(0f) }
+    var vibed by remember { mutableStateOf(false) }
 
-    Box(
-        Modifier
+    val dragX by animateFloatAsState(
+        targetValue = rawOffsetX,
+        animationSpec = spring(dampingRatio = 0.75f, stiffness = Spring.StiffnessMedium),
+        label = "dragX"
+    )
+    val rotation = (dragX / 60f).coerceIn(-12f, 12f)
+    val progress = (dragX / thresholdPx).coerceIn(-1f, 1f)
+
+    // Haptics cerca del umbral
+    LaunchedEffect(progress) {
+        val near = 0.9f
+        if (!vibed && abs(progress) > near) {
+            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+            vibed = true
+        }
+        if (abs(progress) < 0.5f) vibed = false
+    }
+
+    Card(
+        modifier = Modifier
             .fillMaxSize()
             .padding(24.dp)
-            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(24.dp))
+            .graphicsLayer {
+                translationX = dragX
+                rotationZ = rotation
+            }
             .pointerInput(Unit) {
                 detectDragGestures(
                     onDragEnd = {
                         when {
-                            offsetX < -threshold -> onLeft()
-                            offsetX >  threshold -> onRight()
+                            dragX > thresholdPx -> {
+                                // sale a la derecha
+                                rawOffsetX = screenWidth * 2f
+                                onSwipeRight()
+                                rawOffsetX = 0f
+                            }
+                            dragX < -thresholdPx -> {
+                                // sale a la izquierda
+                                rawOffsetX = -screenWidth * 2f
+                                onSwipeLeft()
+                                rawOffsetX = 0f
+                            }
+                            else -> {
+                                // vuelve al centro
+                                rawOffsetX = 0f
+                            }
                         }
-                        offsetX = 0f
+                    },
+                    onDrag = { change, dragAmount ->
+                        change.consume()
+                        rawOffsetX += dragAmount.x
                     }
-                ) { change, drag ->
-                    change.consume()
-                    offsetX += drag.x
-                }
+                )
             }
-            .graphicsLayer {
-                translationX = offsetX
-                rotationZ = (offsetX / 40f).coerceIn(-12f, 12f)
-            }
-            .clip(RoundedCornerShape(24.dp))
-            .background(MaterialTheme.colorScheme.surface)
+            .clip(RoundedCornerShape(24.dp)),
+        shape = RoundedCornerShape(24.dp)
     ) {
-        MediaSurface(item = item)
+        Box(Modifier.background(MaterialTheme.colorScheme.surface)) {
+            content()
+            SwipeFeedbackOverlay(progress = progress)
+        }
     }
 }
 
@@ -194,23 +264,10 @@ fun SwipeableMediaCard(
 @Composable
 private fun MediaSurface(
     item: MediaItem,
-    forceTestVideo: Boolean = false // pon true para probar una URL remota
+    forceTestVideo: Boolean = false
 ) {
     val TAG = "SwipeClean/MediaSurface"
     val ctx = LocalContext.current
-
-    if (forceTestVideo) {
-        Log.d(TAG, "FORZADO → Reproduciendo url de prueba")
-        VideoPlayer(
-            uri = Uri.parse("https://storage.googleapis.com/exoplayer-test-media-1/mp4/480x270/matrix.mp4"),
-            modifier = Modifier.fillMaxSize(),
-            autoPlay = true,
-            loop = false,
-            mute = false,
-            showControls = true
-        )
-        return
-    }
 
     val resolvedMime = remember(item.uri, item.mimeType, item.isVideo) {
         runCatching { ctx.contentResolver.getType(item.uri) }.getOrNull()
@@ -219,9 +276,8 @@ private fun MediaSurface(
             item.mimeType.startsWith("video/") ||
             (resolvedMime?.startsWith("video/") == true)
 
-    Log.d(TAG, "render → uri=${item.uri} | itemMime=${item.mimeType} | crMime=$resolvedMime | isVideo=$isVideo")
-
     if (isVideo) {
+        // Vídeos como ya lo tenías
         VideoPlayer(
             uri = item.uri,
             modifier = Modifier.fillMaxSize(),
@@ -231,25 +287,36 @@ private fun MediaSurface(
             showControls = true
         )
     } else {
-        SubcomposeAsyncImage(
-            model = ImageRequest.Builder(ctx)
-                .data(item.uri)
-                .size(Size.ORIGINAL)
-                .crossfade(true)
-                .build(),
-            contentDescription = null,
-            contentScale = ContentScale.Fit,
-            modifier = Modifier.fillMaxSize(),
-            loading = {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
+        // 👇 Imagen SIN upscale: Inside + fondo negro
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(Color.Black), // fondo para letterboxing vertical si sobra
+            contentAlignment = Alignment.Center
+        ) {
+            SubcomposeAsyncImage(
+                model = ImageRequest.Builder(ctx)
+                    .data(item.uri)
+                    .crossfade(true)
+                    .size(Size.ORIGINAL)          // pide el bitmap original
+                    .allowHardware(false)
+                    .build(),
+                contentDescription = null,
+                // 👇 aquí el cambio importante
+                contentScale = ContentScale.FillWidth,
+                modifier = Modifier.fillMaxWidth(),
+                loading = {
+                    CircularProgressIndicator(Modifier.padding(24.dp))
+                },
+                error = {
+                    Text(
+                        "Error al cargar",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White
+                    )
                 }
-            },
-            error = {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("Error al cargar", style = MaterialTheme.typography.bodyMedium)
-                }
-            }
-        )
+            )
+        }
+
     }
 }
