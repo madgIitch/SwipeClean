@@ -40,7 +40,6 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
     init {
         viewModelScope.launch {
             val s = readUserState(getApplication())
-
             currentFilter = when (s.filter) {
                 "IMAGES" -> MediaFilter.IMAGES
                 "VIDEOS" -> MediaFilter.VIDEOS
@@ -51,20 +50,22 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
 
             loadInternal(currentFilter)
 
-            val savedIndex = s.index
+            val list = _items.value
             val candidateIndex = s.currentUri?.let { savedUri ->
-                _items.value.indexOfFirst { it.uri.toString() == savedUri }
+                list.indexOfFirst { it.uri.toString() == savedUri }
             } ?: -1
 
-            _index.value = when {
-                candidateIndex >= 0    -> candidateIndex
-                _items.value.isEmpty() -> 0
-                else                   -> savedIndex.coerceIn(0, _items.value.lastIndex)
+            val restored = when {
+                candidateIndex >= 0 -> candidateIndex                         // vuelve exactamente a la foto guardada
+                list.isEmpty()       -> 0
+                else                 -> s.index.coerceIn(0, list.lastIndex)    // usa el índice guardado si la URI ya no existe
             }
 
-            persistAsync()
+            _index.value = restored
+            persistNow()
         }
     }
+
 
     fun load(filter: MediaFilter = MediaFilter.ALL) {
         viewModelScope.launch {
@@ -87,16 +88,42 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
     private fun next() {
         val size = _items.value.size
         if (size == 0) return
-        _index.value = (_index.value + 1) % size
-        persistAsync()
+        // antes: (_index.value + 1) % size
+        val newIndex = (_index.value + 1).coerceAtMost(size - 1)
+        _index.value = newIndex
+        persistNow() // ver paso 2
     }
 
     private fun prev() {
         val size = _items.value.size
         if (size == 0) return
-        _index.value = (_index.value - 1 + size) % size
-        persistAsync()
+        // antes: (_index.value - 1 + size) % size
+        val newIndex = (_index.value - 1).coerceAtLeast(0)
+        _index.value = newIndex
+        persistNow()
     }
+
+    private fun persistNow() {
+        val ctx = getApplication<Application>()
+        val safeIndex = _index.value.coerceIn(0, (_items.value.lastIndex).coerceAtLeast(0))
+        // Bloquea en hilo IO para garantizar escritura antes de que la app muera
+        runCatching {
+            kotlinx.coroutines.runBlocking(Dispatchers.IO) {
+                saveUserState(
+                    context = ctx,
+                    index = safeIndex,
+                    currentUri = current()?.uri?.toString(),
+                    pending = pendingTrash.map(Uri::toString).toSet(),
+                    filter = when (currentFilter) {
+                        MediaFilter.IMAGES -> "IMAGES"
+                        MediaFilter.VIDEOS -> "VIDEOS"
+                        MediaFilter.ALL    -> "ALL"
+                    }
+                )
+            }
+        }
+    }
+
 
     fun markForTrash() {
         current()?.let { item ->
