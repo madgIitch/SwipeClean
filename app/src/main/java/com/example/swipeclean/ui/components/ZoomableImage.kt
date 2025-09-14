@@ -28,6 +28,7 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 private const val TAG_ZOOM = "SwipeClean/Zoom"
 private const val DEBUG_VERBOSE = false
@@ -39,22 +40,32 @@ fun ZoomableImage(
     cornerRadius: Dp = 16.dp,
     minScale: Float = 1f,
     maxScale: Float = 5f,
-    onZoomingChange: (Boolean) -> Unit = {}
+    onZoomingChange: (Boolean) -> Unit = {},
+    autoResetOnRelease: Boolean = true,    // 👈 NUEVO: vuelve siempre a 1x al soltar (por defecto)
+    snapEps: Float = 0.15f                 // si autoResetOnRelease=false, margen ±15% para volver a 1x
 ) {
     key(item.uri) {
         val scope = rememberCoroutineScope()
 
+        // Animables “visibles”
         val scaleA = remember { Animatable(1f) }
         val offsetXA = remember { Animatable(0f) }
         val offsetYA = remember { Animatable(0f) }
 
+        // Estado “raw” durante el gesto (sin imán)
         var scaleRaw by remember { mutableStateOf(1f) }
         var offsetRaw by remember { mutableStateOf(Offset.Zero) }
 
         var runningAnim: Job? by remember { mutableStateOf(null) }
-        suspend fun cancelRunning() {
-            runningAnim?.cancelAndJoin()
-            runningAnim = null
+        suspend fun cancelRunning() { runningAnim?.cancelAndJoin(); runningAnim = null }
+
+        fun clampScale(s: Float) = s.coerceIn(minScale, maxScale)
+
+        suspend fun animateTo(scale: Float, offset: Offset) {
+            cancelRunning()
+            scope.launch { scaleA.animateTo(scale,  spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = 0.9f)) }
+            scope.launch { offsetXA.animateTo(offset.x, spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = 0.9f)) }
+            scope.launch { offsetYA.animateTo(offset.y, spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = 0.9f)) }
         }
 
         LaunchedEffect(Unit) {
@@ -62,6 +73,7 @@ fun ZoomableImage(
             onZoomingChange(false)
         }
 
+        // Emite zooming según escala visible
         LaunchedEffect(Unit) {
             snapshotFlow { scaleA.value }
                 .map { it > 1.01f }
@@ -72,83 +84,62 @@ fun ZoomableImage(
                 }
         }
 
-        fun clampScale(s: Float) = s.coerceIn(minScale, maxScale)
-
-        suspend fun animateTo(scale: Float, offset: Offset) {
-            cancelRunning()
-            runningAnim = scope.launch {
-                scaleA.animateTo(
-                    scale,
-                    spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = 0.9f)
-                )
-            }
-            runningAnim = scope.launch {
-                offsetXA.animateTo(
-                    offset.x,
-                    spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = 0.9f)
-                )
-            }
-            runningAnim = scope.launch {
-                offsetYA.animateTo(
-                    offset.y,
-                    spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = 0.9f)
-                )
-            }
-        }
-
         val ctx = LocalContext.current
 
         Box(
             modifier = modifier
                 .fillMaxSize()
                 .clip(RoundedCornerShape(cornerRadius))
+                // 1) Pinch & pan fluido (sin imán durante el gesto)
                 .pointerInput(item.uri) {
-                    detectTransformGestures(
-                        panZoomLock = true,
-                        onGesture = { centroid, pan, zoom, _ ->
-                            val newScale = clampScale(scaleRaw * zoom)
-                            val scaleChange = newScale / scaleRaw
-                            scaleRaw = newScale
+                    detectTransformGestures(panZoomLock = true) { centroid, pan, zoom, _ ->
+                        val newScale = clampScale(scaleRaw * zoom)
+                        val scaleChange = if (scaleRaw == 0f) 1f else newScale / scaleRaw
+                        scaleRaw = newScale
 
-                            val newOffset = if (scaleChange != 1f) {
-                                Offset(
-                                    (offsetRaw.x - centroid.x) * scaleChange + centroid.x + pan.x,
-                                    (offsetRaw.y - centroid.y) * scaleChange + centroid.y + pan.y
-                                )
-                            } else {
-                                offsetRaw + pan
-                            }
-                            offsetRaw = newOffset
-
-                            scope.launch {
-                                scaleA.snapTo(scaleRaw)
-                                offsetXA.snapTo(offsetRaw.x)
-                                offsetYA.snapTo(offsetRaw.y)
-                            }
-                            if (DEBUG_VERBOSE) {
-                                Log.v(
-                                    TAG_ZOOM,
-                                    "raw: scale=${"%.2f".format(scaleRaw)} off=(${offsetRaw.x.toInt()},${offsetRaw.y.toInt()})"
-                                )
-                            }
+                        // Pan con “foco” en el centroide al hacer zoom
+                        offsetRaw = if (scaleChange != 1f) {
+                            Offset(
+                                (offsetRaw.x - centroid.x) * scaleChange + centroid.x + pan.x,
+                                (offsetRaw.y - centroid.y) * scaleChange + centroid.y + pan.y
+                            )
+                        } else {
+                            offsetRaw + pan
                         }
-                    )
+
+                        // Actualiza render al vuelo (snap, no animación)
+                        scope.launch {
+                            scaleA.snapTo(scaleRaw)
+                            offsetXA.snapTo(offsetRaw.x)
+                            offsetYA.snapTo(offsetRaw.y)
+                        }
+                        if (DEBUG_VERBOSE) {
+                            Log.v(TAG_ZOOM, "raw: scale=${"%.3f".format(scaleRaw)} off=(${offsetRaw.x.toInt()},${offsetRaw.y.toInt()})")
+                        }
+                    }
                 }
-                .pointerInput(item.uri) {
+                // 2) Fin de gesto: decide snap
+                .pointerInput(item.uri, autoResetOnRelease, snapEps) {
                     awaitPointerEventScope {
                         while (true) {
                             val event = awaitPointerEvent()
-                            if (event.changes.all { it.changedToUp() }) {
-                                val EPS = 0.06f
-                                val targetScale = if (scaleRaw < 1f + EPS) 1f else scaleRaw
+                            if (event.changes.isNotEmpty() && event.changes.all { it.changedToUp() }) {
+                                val targetScale =
+                                    if (autoResetOnRelease) 1f
+                                    else if (abs(scaleRaw - 1f) <= snapEps) 1f else scaleRaw
                                 val targetOffset = if (targetScale == 1f) Offset.Zero else offsetRaw
                                 scope.launch { animateTo(targetScale, targetOffset) }
                                 scaleRaw = targetScale
                                 offsetRaw = targetOffset
+                                Log.d(
+                                    TAG_ZOOM,
+                                    "gesture end → snap scale=${"%.2f".format(targetScale)}, offset=(${targetOffset.x.toInt()},${targetOffset.y.toInt()})"
+                                )
                             }
                         }
                     }
                 }
+                // 3) Doble-tap con animación
                 .pointerInput(item.uri) {
                     detectTapGestures(
                         onDoubleTap = {
