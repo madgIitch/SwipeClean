@@ -23,7 +23,6 @@ import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.*
 import androidx.compose.ui.unit.dp
-import com.example.swipeclean.ui.components.SwipeFeedbackOverlay
 
 private const val TAG_SWIPE = "SwipeClean/Swipe"
 private const val DEBUG_VERBOSE = false
@@ -38,7 +37,7 @@ fun SwipeableCard(
     val haptics = LocalHapticFeedback.current
     val density = LocalDensity.current
     val screenWidthDp = LocalConfiguration.current.screenWidthDp
-    val thresholdPx = with(density) { (screenWidthDp.dp * 0.30f).toPx() } // un poco más fácil
+    val thresholdPx = with(density) { (screenWidthDp.dp * 0.30f).toPx() } // amable
     val viewConfig = LocalViewConfiguration.current
     val touchSlop = viewConfig.touchSlop
 
@@ -78,6 +77,12 @@ fun SwipeableCard(
                     val down = first.changes.firstOrNull() ?: return@awaitEachGesture
                     if (!swipeEnabled || down.changedToUp()) return@awaitEachGesture
 
+                    // NEW: si arranca con multi-touch, NO interceptar (cede al zoom)
+                    if (first.changes.size >= 2) {
+                        if (DEBUG_VERBOSE) Log.v(TAG_SWIPE, "multi-touch en down → ceder")
+                        return@awaitEachGesture
+                    }
+
                     Log.d(TAG_SWIPE, "down @ ${down.position}")
                     var totalX = 0f
                     var totalY = 0f
@@ -89,9 +94,14 @@ fun SwipeableCard(
                         val ch = ev.changes.firstOrNull() ?: break
                         if (ch.changedToUp()) break
 
-                        val delta = ch.positionChange()
-                        val dx = delta.x
-                        val dy = delta.y
+                        // NEW: si en cualquier momento hay 2+ dedos → ceder
+                        if (ev.changes.size >= 2) {
+                            if (DEBUG_VERBOSE) Log.v(TAG_SWIPE, "multi-touch detectado durante drag → ceder")
+                            return@awaitEachGesture
+                        }
+
+                        val dx = ch.positionChange().x
+                        val dy = ch.positionChange().y
                         totalX += kotlin.math.abs(dx)
                         totalY += kotlin.math.abs(dy)
 
@@ -115,7 +125,8 @@ fun SwipeableCard(
                                 Log.v(TAG_SWIPE, "drag += ${"%.1f".format(dx)} → rawOffsetX=${"%.1f".format(rawOffsetX)}")
                             }
                         } else if (horizontalDrag == false) {
-                            break
+                            // soltamos control para scroll/zoom vertical
+                            return@awaitEachGesture
                         }
                     }
 
