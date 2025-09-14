@@ -1,5 +1,6 @@
 package com.example.swipeclean.ui.components
 
+import android.util.Log
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
@@ -7,20 +8,23 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.draw.clip
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.swipeclean.MediaItem
-import kotlin.math.max
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+
+private const val TAG_ZOOM = "SwipeClean/Zoom"
+private const val DEBUG_VERBOSE = false
+
 @Composable
 fun ZoomableImage(
     item: MediaItem,
@@ -31,23 +35,27 @@ fun ZoomableImage(
     onZoomingChange: (Boolean) -> Unit = {}
 ) {
     key(item.uri) {
-        var containerSize by remember { mutableStateOf(IntSize.Zero) }
-        var contentSize   by remember { mutableStateOf(IntSize.Zero) }
-
-        var scale  by remember { mutableFloatStateOf(1f) }
+        var scale  by remember { mutableStateOf(1f) }
         var offset by remember { mutableStateOf(Offset.Zero) }
 
-        LaunchedEffect(scale) { onZoomingChange(scale > 1.01f) }
+        LaunchedEffect(Unit) {
+            Log.d(TAG_ZOOM, "init for ${item.uri} → onZoomingChange(false)")
+            onZoomingChange(false)
+        }
 
-        fun clampOffset(s: Float, off: Offset): Offset {
-            if (containerSize == IntSize.Zero || contentSize == IntSize.Zero) return off
-            val cw = containerSize.width.toFloat()
-            val ch = containerSize.height.toFloat()
-            val iw = contentSize.width * s
-            val ih = contentSize.height * s
-            val maxX = max(0f, (iw - cw) / 2f)
-            val maxY = max(0f, (ih - ch) / 2f)
-            return Offset(off.x.coerceIn(-maxX, maxX), off.y.coerceIn(-maxY, maxY))
+        fun normalizeScale(raw: Float): Float {
+            val EPS = 0.02f
+            return if (raw < 1f + EPS) 1f else raw.coerceIn(minScale, maxScale)
+        }
+
+        LaunchedEffect(Unit) {
+            snapshotFlow { scale }
+                .map { s -> normalizeScale(s) > 1f }
+                .distinctUntilChanged()
+                .collect { zooming ->
+                    Log.d(TAG_ZOOM, "onZoomingChange($zooming)")
+                    onZoomingChange(zooming)
+                }
         }
 
         val ctx = LocalContext.current
@@ -55,28 +63,29 @@ fun ZoomableImage(
         Box(
             modifier = modifier
                 .fillMaxSize()
-                .onSizeChanged { containerSize = it }
                 .clip(RoundedCornerShape(cornerRadius))
-                .pointerInput(Unit) {
-                    // ACTIVAR SIEMPRE: pinch/zoom/pan desde 1×
+                .pointerInput(scale) {
                     detectTransformGestures(panZoomLock = true) { _, pan, zoom, _ ->
-                        val newScale = (scale * zoom).coerceIn(minScale, maxScale)
-                        if (newScale != scale) {
-                            scale = newScale
+                        val nextScale = normalizeScale(scale * zoom)
+                        if (nextScale != scale) {
+                            if (DEBUG_VERBOSE) Log.v(TAG_ZOOM, "scale: ${"%.2f".format(scale)} → ${"%.2f".format(nextScale)}")
+                            scale = nextScale
+                            if (nextScale == 1f) offset = Offset.Zero
                         }
-                        if (pan != Offset.Zero) {
-                            offset = clampOffset(scale, offset + pan)
+                        if (pan != Offset.Zero && nextScale > 1f) {
+                            offset += pan
+                            if (DEBUG_VERBOSE) Log.v(TAG_ZOOM, "pan dx=${"%.1f".format(pan.x)} dy=${"%.1f".format(pan.y)} → off=(${offset.x.toInt()},${offset.y.toInt()})")
                         }
                     }
                 }
                 .pointerInput(scale) {
-                    // Doble-tap: 1× ↔ 2.5× (sin while(true), sin reset al terminar)
                     detectTapGestures(
                         onDoubleTap = {
-                            if (scale < 1.5f) {
+                            if (scale <= 1f) {
+                                Log.d(TAG_ZOOM, "doubleTap → zoom IN")
                                 scale = 2.5f.coerceIn(minScale, maxScale)
-                                offset = clampOffset(scale, offset) // opcional: centrar al tap
                             } else {
+                                Log.d(TAG_ZOOM, "doubleTap → reset")
                                 scale = 1f
                                 offset = Offset.Zero
                             }
@@ -87,7 +96,6 @@ fun ZoomableImage(
             AsyncImage(
                 model = ImageRequest.Builder(ctx).data(item.uri).crossfade(true).build(),
                 contentDescription = null,
-                contentScale = ContentScale.Fit,
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
@@ -95,11 +103,9 @@ fun ZoomableImage(
                         scaleY = scale
                         translationX = offset.x
                         translationY = offset.y
+                        clip = true
                     },
-                onSuccess = {
-                    val d = it.result.drawable
-                    contentSize = IntSize(max(1, d.intrinsicWidth), max(1, d.intrinsicHeight))
-                }
+                contentScale = ContentScale.Fit
             )
         }
     }
