@@ -68,6 +68,11 @@ dependencies {
     implementation("io.coil-kt:coil:2.6.0")
     implementation("io.coil-kt:coil-compose:2.6.0")
     implementation("io.coil-kt:coil-video:2.6.0")
+    implementation("androidx.compose.foundation:foundation") // <— gestos, onSizeChanged, etc.
+    // (opcional) si usas lazy grid/staggered:
+    // implementation("androidx.compose.foundation:foundation-layout")
+
+
 
     // Media3 (una sola versión)
     val media3 = "1.3.1"

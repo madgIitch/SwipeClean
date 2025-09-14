@@ -5,7 +5,6 @@ import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.annotation.RequiresApi
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -26,28 +25,80 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.consumePositionChange
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.unit.dp
-import coil.compose.SubcomposeAsyncImage
-import coil.request.ImageRequest
-import coil.size.Size
 import com.example.swipeclean.ui.components.AdaptiveBackdrop
 import com.example.swipeclean.ui.components.FancyTopBar
 import com.example.swipeclean.ui.components.RoundActionIcon
 import com.example.swipeclean.ui.components.SwipeFeedbackOverlay
+import com.example.swipeclean.ui.components.ZoomableImage
 import com.madglitch.swipeclean.GalleryViewModel
-import kotlin.math.abs
 
-@RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
+// -----------------------------------------------------------------------------
+// Helper unificado para decidir si un MediaItem es vídeo
+// -----------------------------------------------------------------------------
+@Composable
+private fun isVideoItem(item: MediaItem): Boolean {
+    val ctx = LocalContext.current
+    val realMime = remember(item.uri, item.mimeType, item.isVideo) {
+        runCatching { ctx.contentResolver.getType(item.uri) }.getOrNull()
+    }
+    return item.isVideo ||
+            item.mimeType.startsWith("video/") ||
+            (realMime?.startsWith("video/") == true)
+}
+
+// -----------------------------------------------------------------------------
+// Componente único de media: vídeo con ExoPlayer o foto con pinch-to-zoom
+// -----------------------------------------------------------------------------
+@Composable
+private fun MediaCard(
+    item: MediaItem?,
+    onSwipeEnabledChange: (Boolean) -> Unit = {},
+    modifier: Modifier = Modifier.fillMaxSize()
+) {
+    if (item == null) {
+        Box(modifier, contentAlignment = Alignment.Center) { Text("Sin imagen") }
+        return
+    }
+
+    val isVideo = isVideoItem(item)
+    if (isVideo) {
+        // En vídeo, swipe habilitado siempre (misma lógica que MediaSurface)
+        onSwipeEnabledChange(true)
+        VideoPlayer(
+            uri = item.uri,
+            modifier = modifier,
+            autoPlay = true,
+            loop = true,
+            mute = false,
+            showControls = true
+        )
+    } else {
+        // Foto con pinch-to-zoom: bloquea swipe cuando hay zoom activo
+        ZoomableImage(
+            item = item,
+            modifier = modifier,
+            onZoomingChange = { zooming -> onSwipeEnabledChange(!zooming) }
+        )
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Pantalla principal
+// -----------------------------------------------------------------------------
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CardScreen(vm: GalleryViewModel) {
     val items by vm.items.collectAsState()
     val index by vm.index.collectAsState()
-    val filter by vm.filter.collectAsState() // <-- estado del filtro para el TopBar
+    val filter by vm.filter.collectAsState()
     val ctx = LocalContext.current
 
     val total = items.size
@@ -55,7 +106,9 @@ fun CardScreen(vm: GalleryViewModel) {
     val shownIndex = if (total > 0) clampedIndex + 1 else 0
     val currentItem = items.getOrNull(clampedIndex)
 
-    // Launcher para ReviewActivity -> recibe staged/confirmed
+    // Bloquea el swipe cuando hay zoom activo
+    var swipeEnabled by remember { mutableStateOf(true) }
+
     val reviewLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -81,7 +134,6 @@ fun CardScreen(vm: GalleryViewModel) {
         if (confirmed.isNotEmpty()) vm.confirmDeletionConfirmed(confirmed)
     }
 
-    // Transparente para ver el AdaptiveBackdrop detrás
     Scaffold(
         containerColor = Color.Transparent,
         contentColor = MaterialTheme.colorScheme.onBackground,
@@ -99,8 +151,8 @@ fun CardScreen(vm: GalleryViewModel) {
                     }
                     reviewLauncher.launch(intent)
                 },
-                currentFilter = filter,                 // <-- filtro actual
-                onFilterChange = { vm.setFilter(it) }   // <-- cambia filtro
+                currentFilter = filter,
+                onFilterChange = { vm.setFilter(it) }
             )
         },
         bottomBar = {
@@ -130,7 +182,6 @@ fun CardScreen(vm: GalleryViewModel) {
             }
         }
     ) { padding ->
-        // Fondo adaptativo según la imagen actual
         AdaptiveBackdrop(currentItem) {
             Box(
                 Modifier
@@ -140,7 +191,6 @@ fun CardScreen(vm: GalleryViewModel) {
                 if (total == 0) {
                     Text("No hay elementos en la galería", Modifier.align(Alignment.Center))
                 } else {
-                    // Fade elegante entre ítems usando el ÍNDICE como estado
                     AnimatedContent(
                         targetState = clampedIndex,
                         transitionSpec = {
@@ -152,10 +202,14 @@ fun CardScreen(vm: GalleryViewModel) {
                         val itemAt = items.getOrNull(idx)
                         if (itemAt != null) {
                             SwipeableCard(
+                                swipeEnabled = swipeEnabled,
                                 onSwipeLeft  = { vm.markForTrash() },
                                 onSwipeRight = { vm.keep() }
                             ) {
-                                MediaSurface(item = itemAt)
+                                MediaCard(
+                                    item = itemAt,
+                                    onSwipeEnabledChange = { enabled -> swipeEnabled = enabled }
+                                )
                             }
                         } else {
                             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -169,18 +223,26 @@ fun CardScreen(vm: GalleryViewModel) {
     }
 }
 
+// -----------------------------------------------------------------------------
+// Tarjeta swipeable con bloqueo direccional y feedback háptico
+// -----------------------------------------------------------------------------
 @Composable
 private fun SwipeableCard(
+    swipeEnabled: Boolean = true,
     onSwipeLeft: () -> Unit,
     onSwipeRight: () -> Unit,
     content: @Composable () -> Unit
 ) {
-    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
-    val screenWidth = LocalConfiguration.current.screenWidthDp
-    val thresholdPx = (screenWidth * 0.35f) // umbral ~35% del ancho de pantalla
+    val haptics = LocalHapticFeedback.current
+    val density = LocalDensity.current
+    val screenWidthDp = LocalConfiguration.current.screenWidthDp
+    val thresholdPx = with(density) { (screenWidthDp.dp * 0.35f).toPx() }
+    val viewConfig = LocalViewConfiguration.current
+    val touchSlop = viewConfig.touchSlop
 
     var rawOffsetX by remember { mutableFloatStateOf(0f) }
     var vibed by remember { mutableStateOf(false) }
+    var horizontalDrag by remember { mutableStateOf<Boolean?>(null) }
 
     val dragX by animateFloatAsState(
         targetValue = rawOffsetX,
@@ -190,14 +252,14 @@ private fun SwipeableCard(
     val rotation = (dragX / 60f).coerceIn(-12f, 12f)
     val progress = (dragX / thresholdPx).coerceIn(-1f, 1f)
 
-    // Haptics cerca del umbral
-    LaunchedEffect(progress) {
+    LaunchedEffect(progress, swipeEnabled) {
+        if (!swipeEnabled) return@LaunchedEffect
         val near = 0.9f
-        if (!vibed && abs(progress) > near) {
+        if (!vibed && kotlin.math.abs(progress) > near) {
             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
             vibed = true
         }
-        if (abs(progress) < 0.5f) vibed = false
+        if (kotlin.math.abs(progress) < 0.5f) vibed = false
     }
 
     Card(
@@ -208,90 +270,64 @@ private fun SwipeableCard(
                 translationX = dragX
                 rotationZ = rotation
             }
-            .pointerInput(Unit) {
-                detectDragGestures(
-                    onDragEnd = {
-                        when {
-                            dragX > thresholdPx -> {
-                                rawOffsetX = screenWidth * 2f
-                                onSwipeRight()
-                                rawOffsetX = 0f
-                            }
-                            dragX < -thresholdPx -> {
-                                rawOffsetX = -screenWidth * 2f
-                                onSwipeLeft()
-                                rawOffsetX = 0f
-                            }
-                            else -> {
-                                rawOffsetX = 0f
-                            }
-                        }
-                    },
-                    onDrag = { change, dragAmount ->
-                        change.consume()
-                        rawOffsetX += dragAmount.x
-                    }
-                )
-            }
             .clip(RoundedCornerShape(24.dp)),
         shape = RoundedCornerShape(24.dp)
     ) {
-        // La card mantiene su surface para contraste de controles overlay
+        // Contenido (debajo)
         Box(Modifier.background(MaterialTheme.colorScheme.surface)) {
             content()
             SwipeFeedbackOverlay(progress = progress)
         }
-    }
-}
 
-/** Carga imagen o frame de vídeo con Coil/ExoPlayer. */
-@Composable
-private fun MediaSurface(
-    item: MediaItem,
-    forceTestVideo: Boolean = false
-) {
-    val ctx = LocalContext.current
-
-    val resolvedMime = remember(item.uri, item.mimeType, item.isVideo) {
-        runCatching { ctx.contentResolver.getType(item.uri) }.getOrNull()
-    }
-    val isVideo = item.isVideo ||
-            item.mimeType.startsWith("video/") ||
-            (resolvedMime?.startsWith("video/") == true)
-
-    if (isVideo) {
-        VideoPlayer(
-            uri = item.uri,
-            modifier = Modifier.fillMaxSize(),
-            autoPlay = true,
-            loop = true,
-            mute = false,
-            showControls = true
-        )
-    } else {
-        // Sin fondo negro para que “asome” el AdaptiveBackdrop
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            SubcomposeAsyncImage(
-                model = ImageRequest.Builder(ctx)
-                    .data(item.uri)
-                    .crossfade(true)
-                    .size(Size.ORIGINAL)          // pide el bitmap original
-                    .allowHardware(false)
-                    .build(),
-                contentDescription = null,
-                contentScale = ContentScale.FillWidth,   // ancho de la card
-                modifier = Modifier.fillMaxWidth(),
-                loading = { CircularProgressIndicator(Modifier.padding(24.dp)) },
-                error = {
-                    Text(
-                        "Error al cargar",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
+        // Overlay que captura swipe solo si está habilitado
+        if (swipeEnabled) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .pointerInput(swipeEnabled) {
+                        detectDragGestures(
+                            onDragStart = {
+                                horizontalDrag = null
+                                vibed = false
+                            },
+                            onDragCancel = {
+                                horizontalDrag = null
+                                rawOffsetX = 0f
+                            },
+                            onDragEnd = {
+                                horizontalDrag = null
+                                when {
+                                    dragX > thresholdPx -> {
+                                        rawOffsetX = with(density) { screenWidthDp.dp.toPx() } * 2f
+                                        onSwipeRight()
+                                        rawOffsetX = 0f
+                                    }
+                                    dragX < -thresholdPx -> {
+                                        rawOffsetX = -with(density) { screenWidthDp.dp.toPx() } * 2f
+                                        onSwipeLeft()
+                                        rawOffsetX = 0f
+                                    }
+                                    else -> rawOffsetX = 0f
+                                }
+                            },
+                            onDrag = { change, dragAmount ->
+                                // decidir dirección con slop
+                                if (horizontalDrag == null) {
+                                    val absX = kotlin.math.abs(dragAmount.x)
+                                    val absY = kotlin.math.abs(dragAmount.y)
+                                    when {
+                                        absX - absY > touchSlop -> horizontalDrag = true
+                                        absY - absX > touchSlop -> horizontalDrag = false
+                                        else -> return@detectDragGestures
+                                    }
+                                }
+                                if (horizontalDrag == true) {
+                                    change.consumePositionChange()
+                                    rawOffsetX += dragAmount.x
+                                }
+                            }
+                        )
+                    }
             )
         }
     }
