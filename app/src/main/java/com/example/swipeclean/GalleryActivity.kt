@@ -10,7 +10,6 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -21,6 +20,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.ripple.rememberRipple
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -56,7 +56,6 @@ class GalleryActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Lee extras de entrada
         val ids = intent.getLongArrayExtra(EXTRA_IDS) ?: longArrayOf()
         val kinds = intent.getIntArrayExtra(EXTRA_KINDS) ?: intArrayOf()
         val currentIndex = intent.getIntExtra(EXTRA_CURRENT_INDEX, 0)
@@ -108,7 +107,9 @@ private fun GalleryScreen(
     onClose: () -> Unit,
     onPick: (Int) -> Unit
 ) {
-    var selectedIndex by remember { mutableStateOf(initialIndex.coerceIn(0, (uris.size - 1).coerceAtLeast(0))) }
+    var selectedIndex by remember {
+        mutableStateOf(initialIndex.coerceIn(0, (uris.size - 1).coerceAtLeast(0)))
+    }
 
     Scaffold(
         topBar = {
@@ -163,7 +164,7 @@ private fun GalleryScreen(
         ) {
             itemsIndexed(
                 items = uris,
-                key = { index, _ -> index } // clave estable por índice
+                key = { index, _ -> index }
             ) { index, uri ->
                 val isVideo = kinds.getOrNull(index) == 2
                 val isSelected = index == selectedIndex
@@ -172,12 +173,8 @@ private fun GalleryScreen(
                     uri = uri,
                     isVideo = isVideo,
                     isSelected = isSelected,
-                    onClick = {
-                        selectedIndex = index
-                    },
-                    onDoubleClick = { // Atajo: doble tap → seleccionar y devolver
-                        onPick(index)
-                    }
+                    onClick = { selectedIndex = index },
+                    onDoubleClick = { onPick(index) }
                 )
             }
         }
@@ -192,7 +189,7 @@ private fun GalleryTile(
     onClick: () -> Unit,
     onDoubleClick: () -> Unit
 ) {
-    // Pequeño helper para doble click sin librerías externas
+    // Doble click simple sin libs externas
     var lastClickTime by remember { mutableStateOf(0L) }
     fun handleClick() {
         val now = System.currentTimeMillis()
@@ -204,22 +201,25 @@ private fun GalleryTile(
         if (isSelected) MaterialTheme.colorScheme.primary
         else MaterialTheme.colorScheme.outlineVariant
 
+    val interaction = remember { MutableInteractionSource() }
+
     Box(
         modifier = Modifier
             .aspectRatio(1f)
             .clip(MaterialTheme.shapes.medium)
             .background(MaterialTheme.colorScheme.surfaceVariant)
             .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = LocalIndication.current
-            ) { handleClick() }
+                interactionSource = interaction,
+                indication = rememberRipple(), // ✅ API nueva: pasar ripple explícitamente
+                onClick = { handleClick() }
+            )
             .then(Modifier.padding(0.dp)),
         contentAlignment = Alignment.BottomStart
     ) {
         AsyncImage(
             model = ImageRequest.Builder(LocalContext.current)
                 .data(uri)
-                // Para vídeos, Coil puede sacar frame por defecto; si quieres forzar:
+                // Para vídeos, Coil puede extraer un frame automáticamente; si quieres forzar:
                 // .videoFrameMillis(1000)
                 .crossfade(true)
                 .build(),
@@ -228,7 +228,6 @@ private fun GalleryTile(
             contentScale = ContentScale.Crop
         )
 
-        // Etiqueta “VIDEO”
         if (isVideo) {
             Surface(
                 color = Color.Black.copy(alpha = 0.45f),
@@ -245,7 +244,6 @@ private fun GalleryTile(
             }
         }
 
-        // Borde de selección
         Box(
             modifier = Modifier
                 .matchParentSize()

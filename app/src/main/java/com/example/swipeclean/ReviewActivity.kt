@@ -14,11 +14,13 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.ripple.rememberRipple
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshots.SnapshotStateList
@@ -36,8 +38,6 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.swipeclean.ui.theme.SwipeCleanTheme
 import java.util.Locale
-
-
 
 class ReviewActivity : ComponentActivity() {
 
@@ -86,7 +86,7 @@ class ReviewActivity : ComponentActivity() {
                     }
 
                     val selectAllState: ToggleableState = when {
-                        selected.isEmpty()       -> ToggleableState.Off
+                        selected.isEmpty()        -> ToggleableState.Off
                         selected.size == allCount -> ToggleableState.On
                         else                      -> ToggleableState.Indeterminate
                     }
@@ -113,6 +113,7 @@ class ReviewActivity : ComponentActivity() {
                                     }
                                 },
                                 actions = {
+                                    val interaction = remember { MutableInteractionSource() }
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
                                         modifier = Modifier
@@ -120,6 +121,8 @@ class ReviewActivity : ComponentActivity() {
                                             .clip(RoundedCornerShape(20.dp))
                                             .clickable(
                                                 role = Role.Checkbox,
+                                                interactionSource = interaction,
+                                                indication = rememberRipple(),
                                                 onClick = {
                                                     if (selected.size == allCount) selected.clear()
                                                     else { selected.clear(); selected.addAll(items) }
@@ -277,11 +280,16 @@ private fun SelectableThumb(
     onToggle: () -> Unit
 ) {
     val shape = RoundedCornerShape(12.dp)
+    val interaction = remember { MutableInteractionSource() }
 
     Box(
         modifier = Modifier
             .clip(shape)
-            .clickable { onToggle() }
+            .clickable(
+                interactionSource = interaction,
+                indication = rememberRipple(),
+                onClick = onToggle
+            )
             .fillMaxWidth()
             .aspectRatio(1f)
     ) {
