@@ -49,6 +49,7 @@ dependencies {
     implementation(libs.androidx.activity.compose)
     implementation("androidx.datastore:datastore-preferences:1.1.1")
     implementation ("com.google.accompanist:accompanist-systemuicontroller:0.34.0")
+    implementation("io.coil-kt:coil-compose:2.6.0")
 
 
     // Compose (BOM)
@@ -58,6 +59,7 @@ dependencies {
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
     implementation(libs.androidx.palette.ktx)
+    implementation(libs.androidx.compose.foundation)
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
     androidTestImplementation(platform(libs.androidx.compose.bom))

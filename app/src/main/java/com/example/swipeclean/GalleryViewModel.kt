@@ -181,6 +181,13 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
         load(newFilter)
     }
 
+    // Ajusta los nombres si en tu VM se llaman distinto (_items/_index)
+    fun jumpTo(targetIndex: Int) {
+        val max = _items.value.lastIndex
+        _index.value = targetIndex.coerceIn(0, max.coerceAtLeast(0))
+    }
+
+
     // ---------------------------
     // Carga / Filtro
     // ---------------------------

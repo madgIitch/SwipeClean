@@ -19,20 +19,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.example.swipeclean.ui.components.AdaptiveBackdrop
-import com.example.swipeclean.ui.components.FancyTopBar
-import com.example.swipeclean.ui.components.MediaCard
-import com.example.swipeclean.ui.components.RoundActionIcon
-import com.example.swipeclean.ui.components.SwipeableCard
-import com.example.swipeclean.ui.components.DebugGestureEnv
+import com.example.swipeclean.ui.components.*
 import com.madglitch.swipeclean.GalleryViewModel
+import android.content.ContentUris
+import android.provider.MediaStore
+import androidx.annotation.RequiresApi
+
 
 private const val TAG_UI = "SwipeClean/UI"
 
+@RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CardScreen(vm: GalleryViewModel) {
-    DebugGestureEnv() // dump slop/threshold
+    DebugGestureEnv()
 
     val items by vm.items.collectAsState()
     val index by vm.index.collectAsState()
@@ -55,6 +55,7 @@ fun CardScreen(vm: GalleryViewModel) {
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         val data = result.data ?: return@rememberLauncherForActivityResult
+
         val staged: ArrayList<Uri> =
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
                 data.getParcelableArrayListExtra(EXTRA_STAGED_URIS, Uri::class.java) ?: arrayListOf()
@@ -72,6 +73,18 @@ fun CardScreen(vm: GalleryViewModel) {
         if (confirmed.isNotEmpty()) vm.confirmDeletionConfirmed(confirmed)
     }
 
+    val galleryLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            val idx = result.data?.getIntExtra(EXTRA_SELECTED_INDEX, clampedIndex) ?: clampedIndex
+            Log.d(TAG_UI, "GalleryActivity → selected_index=$idx")
+            // usa jumpTo si lo tienes; si no, setIndex o similar
+            vm.jumpTo(idx) // o vm.setIndex(idx)
+        }
+    }
+
+
     Scaffold(
         containerColor = Color.Transparent,
         contentColor = MaterialTheme.colorScheme.onBackground,
@@ -80,9 +93,7 @@ fun CardScreen(vm: GalleryViewModel) {
                 title = "SwipeClean",
                 shownIndex = shownIndex,
                 total = total,
-                onUndo = {
-                    Log.d(TAG_UI, "TopBar.onUndo()"); vm.undo()
-                },
+                onUndo = { Log.d(TAG_UI, "TopBar.onUndo()"); vm.undo() },
                 onReview = {
                     val toReview = vm.getPendingForReview()
                     Log.d(TAG_UI, "TopBar.onReview() → pending=${toReview.size}")
@@ -93,9 +104,19 @@ fun CardScreen(vm: GalleryViewModel) {
                     reviewLauncher.launch(intent)
                 },
                 currentFilter = filter,
-                onFilterChange = {
-                    Log.d(TAG_UI, "TopBar.onFilterChange($it)"); vm.setFilter(it)
+                onFilterChange = { Log.d(TAG_UI, "TopBar.onFilterChange($it)"); vm.setFilter(it) },
+                onCounterClick = {
+                    if (items.isEmpty()) return@FancyTopBar
+                    val ids   = LongArray(items.size) { i -> extractIdFromUri(items[i].uri) }
+                    val kinds = IntArray(items.size)  { i -> toKindInt(items[i].uri) } // 1=image, 2=video
+                    val intent = Intent(ctx, GalleryActivity::class.java).apply {
+                        putExtra("ids", ids)
+                        putExtra("kinds", kinds)
+                        putExtra("current_index", clampedIndex)
+                    }
+                    galleryLauncher.launch(intent)
                 }
+
             )
         },
         bottomBar = {
@@ -160,7 +181,6 @@ fun CardScreen(vm: GalleryViewModel) {
                                 )
                             }
                         } else {
-                            Log.w(TAG_UI, "itemAt=null en idx=$idx → Loading")
                             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 Text("Cargando…")
                             }
@@ -171,3 +191,19 @@ fun CardScreen(vm: GalleryViewModel) {
         }
     }
 }
+
+
+/** Extrae el ID del content:// de MediaStore de forma segura. */
+private fun extractIdFromUri(uri: Uri): Long =
+    try { ContentUris.parseId(uri) } catch (_: Throwable) { -1L }
+
+/** 1 = imagen, 2 = vídeo (heurística por ruta). */
+private fun toKindInt(uri: Uri): Int {
+    val path = uri.path.orEmpty().lowercase()
+    return when {
+        path.contains("/images/") || path.contains("media/external/images") -> 1
+        path.contains("/video/")  || path.contains("media/external/video")  -> 2
+        else -> 1
+    }
+}
+

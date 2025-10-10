@@ -21,10 +21,11 @@ fun FancyTopBar(
     onUndo: () -> Unit,
     onReview: () -> Unit,
     currentFilter: MediaFilter,
-    onFilterChange: (MediaFilter) -> Unit
+    onFilterChange: (MediaFilter) -> Unit,
+    onCounterClick: () -> Unit, // 👈 NUEVO: callback para abrir galería
 ) {
     CenterAlignedTopAppBar(
-        windowInsets = TopAppBarDefaults.windowInsets, // respeta status bar
+        windowInsets = TopAppBarDefaults.windowInsets,
         colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
             containerColor = Color.Transparent,
             scrolledContainerColor = Color.Transparent,
@@ -54,10 +55,13 @@ fun FancyTopBar(
                 ) {
                     Text(text = title, style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = "$shownIndex / $total",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f)
+                    // 👇 Reemplaza el texto por un CounterPill clicable
+                    CounterPill(
+                        current = shownIndex,
+                        total = total,
+                        onClick = {
+                            if (total > 0) onCounterClick()
+                        }
                     )
                 }
             }
@@ -71,7 +75,7 @@ fun FancyTopBar(
                     tint = Color(0xFF4CAF50) // ✅ Verde estilo Tinder
                 )
             }
-            // Nuevo: menú desplegable para el filtro
+            // Menú desplegable de filtro
             FilterDropdown(
                 current = currentFilter,
                 onSelected = onFilterChange
