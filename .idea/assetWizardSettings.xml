@@ -312,8 +312,8 @@
                         <option name="values">
                           <map>
                             <entry key="assetSourceType" value="FILE" />
-                            <entry key="outputName" value="ic_stats" />
-                            <entry key="sourceFile" value="C:\Users\peorr\Desktop\SwipeClean\app\src\main\res\drawable\ic_stats.svg" />
+                            <entry key="outputName" value="ic_swipe" />
+                            <entry key="sourceFile" value="C:\Users\peorr\Desktop\SwipeClean\app\src\main\res\drawable\ic_swipe.svg" />
                           </map>
                         </option>
                       </PersistentState>

@@ -1,6 +1,7 @@
 package com.example.swipeclean
 
 import android.Manifest
+import android.content.Intent
 import android.content.IntentSender
 import android.content.pm.PackageManager
 import android.os.Build
@@ -17,7 +18,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.core.content.ContextCompat
@@ -29,6 +33,14 @@ import com.tuempresa.swipeclean.MediaFilter
 class MainActivity : ComponentActivity() {
 
     private val vm: GalleryViewModel by viewModels()
+
+    private val tutorialLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK) {
+            vm.markTutorialCompleted()
+        }
+    }
 
     // Lanzador para diálogos del sistema (trash/delete)
     private val deleteLauncher = registerForActivityResult(
@@ -61,6 +73,15 @@ class MainActivity : ComponentActivity() {
         setContent {
             SwipeCleanTheme {
                 SetupSystemBars()
+
+                val tutorialCompleted by vm.tutorialCompleted.collectAsState()
+
+                LaunchedEffect(tutorialCompleted) {
+                    if (!tutorialCompleted) {
+                        val intent = Intent(this@MainActivity, TutorialActivity::class.java)
+                        tutorialLauncher.launch(intent)
+                    }
+                }
 
                 Surface(
                     modifier = Modifier

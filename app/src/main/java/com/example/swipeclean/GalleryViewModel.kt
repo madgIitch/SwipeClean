@@ -11,6 +11,7 @@ import android.provider.MediaStore
 import android.provider.OpenableColumns
 import androidx.annotation.RequiresApi
 import androidx.core.content.ContextCompat
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -49,6 +50,8 @@ private val KEY_LAST_FILTER = stringPreferencesKey("last_filter")
 private val KEY_TOTAL_DELETED_BYTES = stringPreferencesKey("total_deleted_bytes")
 private val KEY_TOTAL_DELETED_COUNT = intPreferencesKey("total_deleted_count")
 private val KEY_SESSION_STATS = stringPreferencesKey("session_stats") // JSON con historial por fecha
+private val KEY_TUTORIAL_COMPLETED = booleanPreferencesKey("tutorial_completed")
+
 
 private data class UserState(
     val index: Int = 0,
@@ -91,6 +94,11 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
     // ---------------------------
     // State (UI)
     // ---------------------------
+
+    //Tutorial
+    private val _tutorialCompleted = MutableStateFlow(false)
+    val tutorialCompleted: StateFlow<Boolean> = _tutorialCompleted
+
     private val _items = MutableStateFlow<List<MediaItem>>(emptyList())
     val items: StateFlow<List<MediaItem>> = _items
 
@@ -144,7 +152,6 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
             pendingTrash.addAll(legacy.pending.map(Uri::parse))
 
             if (!hasGalleryPermissions(appCtx)) {
-                // Sin permisos: restaura índice legacy y sal (evita sobreescribir buen estado).
                 _index.value = legacy.index
                 return@launch
             }
@@ -154,8 +161,14 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
 
             // Restauración por-filtro (ID → URI → índice)
             val prefs = appCtx.userDataStore.data.first()
+
+            // Restaurar estadísticas
             _totalDeletedBytes.value = prefs[KEY_TOTAL_DELETED_BYTES]?.toLongOrNull() ?: 0L
             _totalDeletedCount.value = prefs[KEY_TOTAL_DELETED_COUNT] ?: 0
+
+            // ✅ AÑADIR AQUÍ: Restaurar estado del tutorial
+            _tutorialCompleted.value = prefs[KEY_TUTORIAL_COMPLETED] ?: false
+
             val savedIdStr = prefs[keyIdFor(currentFilter)]
             val savedUriForFilter = prefs[keyUriFor(currentFilter)]
             val savedIndexForFilter = prefs[keyIndexFor(currentFilter)] ?: legacy.index
@@ -163,7 +176,7 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
             val list = _items.value
 
             val candidateById = savedIdStr?.toLongOrNull()?.let { id ->
-                list.indexOfFirst { it.id == id } // requiere MediaItem.id: Long?; si no existe, siempre -1
+                list.indexOfFirst { it.id == id }
             } ?: -1
 
             val candidateByUri = if (candidateById < 0 && savedUriForFilter != null) {
@@ -178,8 +191,18 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
             }
 
             _index.value = restored
-            // Guardamos checkpoint inmediato
             persistNow()
+        }
+    }
+
+    //Tutorial completado
+    fun markTutorialCompleted() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val appCtx = getApplication<Application>()
+            appCtx.userDataStore.edit { p ->
+                p[KEY_TUTORIAL_COMPLETED] = true
+            }
+            _tutorialCompleted.value = true
         }
     }
 

@@ -51,5 +51,11 @@
             android:label="@string/title_stats"
             android:theme="@style/Theme.SwipeClean" />
 
+        <activity
+            android:name=".TutorialActivity"
+            android:exported="false"
+            android:label="Tutorial"
+            android:theme="@style/Theme.SwipeClean" />
+
     </application>
 </manifest>
