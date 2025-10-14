@@ -22,7 +22,8 @@ fun FancyTopBar(
     onReview: () -> Unit,
     currentFilter: MediaFilter,
     onFilterChange: (MediaFilter) -> Unit,
-    onCounterClick: () -> Unit, // 👈 NUEVO: callback para abrir galería
+    onCounterClick: () -> Unit,
+    onStatsClick: () -> Unit,
 ) {
     CenterAlignedTopAppBar(
         windowInsets = TopAppBarDefaults.windowInsets,
@@ -67,14 +68,24 @@ fun FancyTopBar(
             }
         },
         actions = {
+            // Botón de estadísticas (NUEVO)
+            IconButton(onClick = onStatsClick) {
+                Icon(
+                    painterResource(R.drawable.ic_stats), // necesitarás este icono
+                    contentDescription = "Estadísticas",
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+
             // Botón de revisión manual
             IconButton(onClick = onReview) {
                 Icon(
                     painterResource(R.drawable.ic_next),
                     contentDescription = "Revisión",
-                    tint = Color(0xFF4CAF50) // ✅ Verde estilo Tinder
+                    tint = Color(0xFF4CAF50)
                 )
             }
+
             // Menú desplegable de filtro
             FilterDropdown(
                 current = currentFilter,

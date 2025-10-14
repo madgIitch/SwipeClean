@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
+import android.provider.OpenableColumns
 import androidx.annotation.RequiresApi
 import androidx.core.content.ContextCompat
 import androidx.datastore.preferences.core.edit
@@ -45,6 +46,9 @@ private fun keyIndexFor(filter: MediaFilter) = intPreferencesKey("index_${filter
 private fun keyUriFor(filter: MediaFilter)   = stringPreferencesKey("uri_${filter.name}")
 private fun keyIdFor(filter: MediaFilter)    = stringPreferencesKey("id_${filter.name}") // opcional (si MediaItem.id existe)
 private val KEY_LAST_FILTER = stringPreferencesKey("last_filter")
+private val KEY_TOTAL_DELETED_BYTES = stringPreferencesKey("total_deleted_bytes")
+private val KEY_TOTAL_DELETED_COUNT = intPreferencesKey("total_deleted_count")
+private val KEY_SESSION_STATS = stringPreferencesKey("session_stats") // JSON con historial por fecha
 
 private data class UserState(
     val index: Int = 0,
@@ -109,6 +113,13 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
     }
     private val history = mutableListOf<UserAction>()
 
+
+    private val _totalDeletedBytes = MutableStateFlow(0L)
+    val totalDeletedBytes: StateFlow<Long> = _totalDeletedBytes
+
+    private val _totalDeletedCount = MutableStateFlow(0)
+    val totalDeletedCount: StateFlow<Int> = _totalDeletedCount
+
     // ---------------------------
     // Init: restaurar estado
     // ---------------------------
@@ -143,6 +154,8 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
 
             // Restauración por-filtro (ID → URI → índice)
             val prefs = appCtx.userDataStore.data.first()
+            _totalDeletedBytes.value = prefs[KEY_TOTAL_DELETED_BYTES]?.toLongOrNull() ?: 0L
+            _totalDeletedCount.value = prefs[KEY_TOTAL_DELETED_COUNT] ?: 0
             val savedIdStr = prefs[keyIdFor(currentFilter)]
             val savedUriForFilter = prefs[keyUriFor(currentFilter)]
             val savedIndexForFilter = prefs[keyIndexFor(currentFilter)] ?: legacy.index
@@ -235,6 +248,25 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
         val ctx = getApplication<Application>().applicationContext
         val data = withContext(Dispatchers.IO) { ctx.loadMedia(filter) }
         _items.value = data
+    }
+
+    private suspend fun calculateTotalSize(uris: List<Uri>): Long {
+        return withContext(Dispatchers.IO) {
+            var total = 0L
+            val projection = arrayOf(OpenableColumns.SIZE)
+            val cr = getApplication<Application>().contentResolver
+            for (uri in uris) {
+                try {
+                    cr.query(uri, projection, null, null, null)?.use { c ->
+                        val idx = c.getColumnIndex(OpenableColumns.SIZE)
+                        if (idx != -1 && c.moveToFirst() && !c.isNull(idx)) {
+                            total += c.getLong(idx)
+                        }
+                    }
+                } catch (_: Exception) { }
+            }
+            total
+        }
     }
 
     fun current(): MediaItem? = _items.value.getOrNull(_index.value)
@@ -381,22 +413,40 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
         if (confirmed.isEmpty()) return
 
         viewModelScope.launch {
+            // NUEVO: Calcular tamaño antes de borrar
+            val deletedBytes = calculateTotalSize(confirmed)
+
             val set = confirmed.toSet()
             pendingTrash.removeAll(set)
             stagedForReview.removeAll(set)
             history.clear()
 
+            // NUEVO: Actualizar estadísticas
+            _totalDeletedBytes.value += deletedBytes
+            _totalDeletedCount.value += confirmed.size
+
             loadInternal(currentFilter)
 
-            // Ajuste del índice con wrap (por si cambió el tamaño)
             val n = _items.value.size
             _index.value = if (n == 0) 0 else ((_index.value % n) + n) % n
 
+            persistStatsAsync(deletedBytes, confirmed.size) // NUEVO
             persistAsync()
         }
     }
 
     fun clearStage() = stagedForReview.clear()
+
+    private fun persistStatsAsync(bytesDeleted: Long, countDeleted: Int) = viewModelScope.launch(Dispatchers.IO) {
+        val appCtx = getApplication<Application>()
+        appCtx.userDataStore.edit { p ->
+            val currentTotal = p[KEY_TOTAL_DELETED_BYTES]?.toLongOrNull() ?: 0L
+            val currentCount = p[KEY_TOTAL_DELETED_COUNT] ?: 0
+
+            p[KEY_TOTAL_DELETED_BYTES] = (currentTotal + bytesDeleted).toString()
+            p[KEY_TOTAL_DELETED_COUNT] = currentCount + countDeleted
+        }
+    }
 
     /**
      * Android 11+ (API 30): manda a Papelera con diálogo del sistema.

@@ -1,5 +1,6 @@
 <resources>
     <string name="app_name">SwipeClean</string>
     <string name="title_gallery">Galería</string>
+    <string name="title_stats">Estadísticas</string>
 
 </resources>

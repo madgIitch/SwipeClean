@@ -27,6 +27,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -111,6 +112,10 @@ private fun GalleryScreen(
         mutableStateOf(initialIndex.coerceIn(0, (uris.size - 1).coerceAtLeast(0)))
     }
 
+    val gridState = rememberLazyGridState(
+        initialFirstVisibleItemIndex = initialIndex.coerceIn(0, (uris.size - 1).coerceAtLeast(0))
+    )
+
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
@@ -154,6 +159,7 @@ private fun GalleryScreen(
         }
 
         LazyVerticalGrid(
+            state = gridState,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),

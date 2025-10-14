@@ -46,6 +46,9 @@ fun CardScreen(vm: GalleryViewModel) {
     val filter by vm.filter.collectAsState()
     val ctx = LocalContext.current
 
+    val totalDeletedBytes by vm.totalDeletedBytes.collectAsState()
+    val totalDeletedCount by vm.totalDeletedCount.collectAsState()
+
     LaunchedEffect(items.size) { Log.d(TAG_UI, "items.size=${items.size}") }
     LaunchedEffect(index)      { Log.d(TAG_UI, "index=$index (items.size=${items.size})") }
     LaunchedEffect(filter)     { Log.d(TAG_UI, "filter=$filter") }
@@ -139,6 +142,14 @@ fun CardScreen(vm: GalleryViewModel) {
                         putExtra("current_index", clampedIndex)
                     }
                     galleryLauncher.launch(intent)
+                },
+                onStatsClick = {
+                    // Abrir nueva StatsActivity o mostrar dialog
+                    val intent = Intent(ctx, StatsActivity::class.java).apply {
+                        putExtra("total_bytes", totalDeletedBytes)
+                        putExtra("total_count", totalDeletedCount)
+                    }
+                    ctx.startActivity(intent) // ✅ ESTO YA ESTÁ CORRECTO
                 }
             )
         },
