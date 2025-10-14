@@ -1,30 +1,37 @@
 package com.example.swipeclean
 
+import android.content.ContentUris
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.provider.MediaStore
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.RequiresApi
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.*
-import androidx.compose.material3.*
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.example.swipeclean.ui.components.*
+import com.example.swipeclean.ui.components.AdaptiveBackdrop
+import com.example.swipeclean.ui.components.DebugGestureEnv
+import com.example.swipeclean.ui.components.FancyTopBar
+import com.example.swipeclean.ui.components.MediaCard
+import com.example.swipeclean.ui.components.RoundActionIcon
+import com.example.swipeclean.ui.components.SwipeableCard
 import com.madglitch.swipeclean.GalleryViewModel
-import android.content.ContentUris
-import android.provider.MediaStore
-import androidx.annotation.RequiresApi
-
 
 private const val TAG_UI = "SwipeClean/UI"
 
@@ -43,6 +50,23 @@ fun CardScreen(vm: GalleryViewModel) {
     LaunchedEffect(index)      { Log.d(TAG_UI, "index=$index (items.size=${items.size})") }
     LaunchedEffect(filter)     { Log.d(TAG_UI, "filter=$filter") }
 
+    // ——————————————————————————————————————————
+    // Compartir elemento actual (ACTION_SEND)
+    // ——————————————————————————————————————————
+    fun shareCurrent() {
+        val item = vm.current() ?: return
+        val uri = item.uri
+        val mime = ctx.contentResolver.getType(uri)
+            ?: if (toKindInt(uri) == 1) "image/*" else "video/*"
+
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = mime
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        ctx.startActivity(Intent.createChooser(intent, "Compartir con…"))
+    }
+
     val total = items.size
     val clampedIndex = if (total > 0) index.coerceIn(0, total - 1) else 0
     val shownIndex = if (total > 0) clampedIndex + 1 else 0
@@ -51,6 +75,7 @@ fun CardScreen(vm: GalleryViewModel) {
     var swipeEnabled by remember { mutableStateOf(true) }
     LaunchedEffect(swipeEnabled) { Log.d(TAG_UI, "swipeEnabled=$swipeEnabled") }
 
+    // Revisión (staging/confirm)
     val reviewLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -73,17 +98,16 @@ fun CardScreen(vm: GalleryViewModel) {
         if (confirmed.isNotEmpty()) vm.confirmDeletionConfirmed(confirmed)
     }
 
+    // Selector de índice desde la galería de miniaturas
     val galleryLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == android.app.Activity.RESULT_OK) {
             val idx = result.data?.getIntExtra(EXTRA_SELECTED_INDEX, clampedIndex) ?: clampedIndex
             Log.d(TAG_UI, "GalleryActivity → selected_index=$idx")
-            // usa jumpTo si lo tienes; si no, setIndex o similar
-            vm.jumpTo(idx) // o vm.setIndex(idx)
+            vm.jumpTo(idx) // o vm.setIndex(idx) si tu VM lo usa
         }
     }
-
 
     Scaffold(
         containerColor = Color.Transparent,
@@ -116,7 +140,6 @@ fun CardScreen(vm: GalleryViewModel) {
                     }
                     galleryLauncher.launch(intent)
                 }
-
             )
         },
         bottomBar = {
@@ -166,11 +189,22 @@ fun CardScreen(vm: GalleryViewModel) {
                     ) { idx ->
                         val itemAt = items.getOrNull(idx)
                         Log.d(TAG_UI, "AnimatedContent idx=$idx uri=${itemAt?.uri}")
+
                         if (itemAt != null) {
                             SwipeableCard(
                                 swipeEnabled = swipeEnabled,
-                                onSwipeLeft  = { Log.d(TAG_UI, "onSwipeLeft → vm.markForTrash()"); vm.markForTrash() },
-                                onSwipeRight = { Log.d(TAG_UI, "onSwipeRight → vm.keep()"); vm.keep() }
+                                onSwipeLeft  = {
+                                    Log.d(TAG_UI, "onSwipeLeft → vm.markForTrash()")
+                                    vm.markForTrash()
+                                },
+                                onSwipeRight = {
+                                    Log.d(TAG_UI, "onSwipeRight → vm.keep()")
+                                    vm.keep()
+                                },
+                                onSwipeUp    = {
+                                    Log.d(TAG_UI, "onSwipeUp → shareCurrent()")
+                                    shareCurrent()
+                                }
                             ) {
                                 MediaCard(
                                     item = itemAt,
@@ -192,6 +226,9 @@ fun CardScreen(vm: GalleryViewModel) {
     }
 }
 
+// ——————————————————————————————————————————
+// Helpers
+// ——————————————————————————————————————————
 
 /** Extrae el ID del content:// de MediaStore de forma segura. */
 private fun extractIdFromUri(uri: Uri): Long =
@@ -206,4 +243,3 @@ private fun toKindInt(uri: Uri): Int {
         else -> 1
     }
 }
-

@@ -301,7 +301,7 @@
                                 <PersistentState>
                                   <option name="values">
                                     <map>
-                                      <entry key="url" value="jar:file:/C:/Program%20Files/Android/Android%20Studio/plugins/android/lib/android.jar!/images/material/icons/materialicons/broken_image/baseline_broken_image_24.xml" />
+                                      <entry key="url" value="file:/$USER_HOME$/AppData/Local/Android/Sdk/icons/material/materialsymbolsoutlined/arrow_shape_up/outline_arrow_shape_up_24.xml" />
                                     </map>
                                   </option>
                                 </PersistentState>
@@ -311,7 +311,7 @@
                         </option>
                         <option name="values">
                           <map>
-                            <entry key="outputName" value="placeholder" />
+                            <entry key="outputName" value="ic_share" />
                             <entry key="sourceFile" value="C:\Users\peorr\Desktop\SwipeClean\app\src\main\res\drawable\back.svg" />
                           </map>
                         </option>

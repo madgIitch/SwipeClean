@@ -17,25 +17,41 @@ import kotlin.math.abs
 import kotlin.math.min
 
 @Composable
-fun SwipeFeedbackOverlay(progress: Float) {
-    // progress: -1 (izq/borrar) → 0 → +1 (dcha/guardar)
-    val alpha = min(1f, abs(progress))
-    val isRight = progress > 0f
-    val label = if (isRight) "Guardar" else "Papelera"
-    val iconRes = if (isRight) R.drawable.ic_check else R.drawable.ic_delete
+fun SwipeFeedbackOverlay(
+    progressX: Float, // -1 … +1
+    upProgress: Float // 0 … 1
+) {
+    val alphaX = min(1f, abs(progressX))
+    val isRight = progressX > 0f
+    val labelX = if (isRight) "Guardar" else "Papelera"
+    val iconResX = if (isRight) R.drawable.ic_check else R.drawable.ic_delete
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        contentAlignment = if (isRight) Alignment.TopStart else Alignment.TopEnd
-    ) {
+    val showUp = upProgress > 0.01f
+    val alphaUp = upProgress.coerceIn(0f, 1f)
+
+    Box(Modifier.fillMaxSize()) {
         AssistChip(
             onClick = {},
-            leadingIcon = { Icon(painterResource(iconRes), contentDescription = null) },
-            label = { Text(label) },
+            leadingIcon = { Icon(painterResource(iconResX), null) },
+            label = { Text(labelX) },
             enabled = false,
-            modifier = Modifier.graphicsLayer { this.alpha = alpha }
+            modifier = Modifier
+                .padding(24.dp)
+                .align(if (isRight) Alignment.TopStart else Alignment.TopEnd)
+                .graphicsLayer { alpha = alphaX }
         )
+
+        if (showUp) {
+            AssistChip(
+                onClick = {},
+                leadingIcon = { Icon(painterResource(R.drawable.ic_share), null) },
+                label = { Text("Compartir") },
+                enabled = false,
+                modifier = Modifier
+                    .padding(top = 24.dp)
+                    .align(Alignment.TopCenter)
+                    .graphicsLayer { alpha = alphaUp }
+            )
+        }
     }
 }

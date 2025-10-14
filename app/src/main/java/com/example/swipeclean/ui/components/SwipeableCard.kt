@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
@@ -21,8 +22,14 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.*
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.unit.dp
+import com.example.swipeclean.R
+import kotlin.math.abs
+import kotlin.math.min
 
 private const val TAG_SWIPE = "SwipeClean/Swipe"
 private const val DEBUG_VERBOSE = false
@@ -32,73 +39,85 @@ fun SwipeableCard(
     swipeEnabled: Boolean = true,
     onSwipeLeft: () -> Unit,
     onSwipeRight: () -> Unit,
+    onSwipeUp: () -> Unit,
     content: @Composable () -> Unit
 ) {
     val haptics = LocalHapticFeedback.current
-    val density = LocalDensity.current
-    val screenWidthDp = LocalConfiguration.current.screenWidthDp
-    val thresholdPx = with(density) { (screenWidthDp.dp * 0.30f).toPx() } // amable
-    val viewConfig = LocalViewConfiguration.current
-    val touchSlop = viewConfig.touchSlop
+    val density = LocalDensity.current                  // ✅ capturado fuera
+    val cfg = LocalConfiguration.current                // ✅ capturado fuera
+    val viewConfig = LocalViewConfiguration.current     // ✅ capturado fuera
+
+    // ✅ Calcula tamaños en px FUERA del pointerInput
+    val screenWidthPx = remember(cfg, density) {
+        with(density) { cfg.screenWidthDp.dp.toPx() }
+    }
+    val screenHeightPx = remember(cfg, density) {
+        with(density) { cfg.screenHeightDp.dp.toPx() }
+    }
+    val thresholdX = screenWidthPx * 0.30f
+    val thresholdY = screenHeightPx * 0.22f
+    val touchSlop  = viewConfig.touchSlop
 
     var rawOffsetX by remember { mutableFloatStateOf(0f) }
+    var rawOffsetY by remember { mutableFloatStateOf(0f) }
     var vibed by remember { mutableStateOf(false) }
     var horizontalDrag by remember { mutableStateOf<Boolean?>(null) }
+    var verticalDragActive by remember { mutableStateOf(false) }
+    var allowUpSwipeStart by remember { mutableStateOf(false) }
 
     val dragX by animateFloatAsState(
         targetValue = rawOffsetX,
         animationSpec = spring(dampingRatio = 0.75f, stiffness = Spring.StiffnessMedium),
         label = "dragX"
     )
-    val rotation = (dragX / 60f).coerceIn(-12f, 12f)
-    val progress = (dragX / thresholdPx).coerceIn(-1f, 1f)
+    val dragY by animateFloatAsState(
+        targetValue = rawOffsetY,
+        animationSpec = spring(dampingRatio = 0.80f, stiffness = Spring.StiffnessLow),
+        label = "dragY"
+    )
 
-    LaunchedEffect(progress, swipeEnabled) {
-        if (!swipeEnabled) {
-            Log.d(TAG_SWIPE, "swipe overlay DESHABILITADO (swipeEnabled=false)")
-            return@LaunchedEffect
-        }
-        if (!vibed && kotlin.math.abs(progress) > 0.9f) {
-            Log.d(TAG_SWIPE, "haptic LONG (progress~$progress)")
+    val rotation   = (dragX / 60f).coerceIn(-12f, 12f)
+    val progressX  = (dragX / thresholdX).coerceIn(-1f, 1f)
+    val upProgress = (-(dragY) / thresholdY).coerceIn(0f, 1f)
+
+    LaunchedEffect(progressX, upProgress, swipeEnabled) {
+        if (!swipeEnabled) return@LaunchedEffect
+        val nearCommit = (kotlin.math.abs(progressX) > 0.9f) || (upProgress > 0.9f)
+        if (!vibed && nearCommit) {
             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
             vibed = true
         }
-        if (kotlin.math.abs(progress) < 0.5f && vibed) vibed = false
+        if (!nearCommit && vibed) vibed = false
     }
 
     Card(
         modifier = Modifier
             .fillMaxSize()
             .padding(24.dp)
-            // Captura en el ancestro y Pass.Initial para ganar prioridad
-            .pointerInput(swipeEnabled) {
+            .pointerInput(swipeEnabled, screenHeightPx, thresholdX, thresholdY, touchSlop) { // ✅ pasa valores
                 awaitEachGesture {
                     val first = awaitPointerEvent(pass = PointerEventPass.Initial)
                     val down = first.changes.firstOrNull() ?: return@awaitEachGesture
                     if (!swipeEnabled || down.changedToUp()) return@awaitEachGesture
+                    if (first.changes.size >= 2) return@awaitEachGesture // cede multi-touch (zoom)
 
-                    // NEW: si arranca con multi-touch, NO interceptar (cede al zoom)
-                    if (first.changes.size >= 2) {
-                        if (DEBUG_VERBOSE) Log.v(TAG_SWIPE, "multi-touch en down → ceder")
-                        return@awaitEachGesture
+                    // ✅ usa screenHeightPx ya calculado
+                    allowUpSwipeStart = down.position.y >= (screenHeightPx * 0.66f)
+                    if (allowUpSwipeStart) {
+                        down.consume() // bloquea que el hijo arranque pan/zoom
                     }
 
-                    Log.d(TAG_SWIPE, "down @ ${down.position}")
                     var totalX = 0f
                     var totalY = 0f
                     horizontalDrag = null
+                    verticalDragActive = false
                     vibed = false
 
                     while (true) {
                         val ev = awaitPointerEvent(pass = PointerEventPass.Initial)
                         val ch = ev.changes.firstOrNull() ?: break
                         if (ch.changedToUp()) break
-
-                        // NEW: si en cualquier momento hay 2+ dedos → ceder
-                        if (ev.changes.size >= 2) {
-                            if (DEBUG_VERBOSE) Log.v(TAG_SWIPE, "multi-touch detectado durante drag → ceder")
-                            return@awaitEachGesture
-                        }
+                        if (ev.changes.size >= 2) return@awaitEachGesture // cede multi-touch
 
                         val dx = ch.positionChange().x
                         val dy = ch.positionChange().y
@@ -109,55 +128,69 @@ fun SwipeableCard(
                             when {
                                 totalX - totalY > touchSlop -> {
                                     horizontalDrag = true
-                                    Log.d(TAG_SWIPE, "direction lock → HORIZONTAL (X=${"%.1f".format(totalX)}, Y=${"%.1f".format(totalY)}, slop=${"%.1f".format(touchSlop)})")
                                 }
                                 totalY - totalX > touchSlop -> {
                                     horizontalDrag = false
-                                    Log.d(TAG_SWIPE, "direction lock → VERTICAL (cede)")
+                                    verticalDragActive = allowUpSwipeStart
+                                }
+                                else -> {
+                                    if (allowUpSwipeStart && (kotlin.math.abs(dx) > 0f || kotlin.math.abs(dy) > 0f)) {
+                                        ch.consume()
+                                    }
                                 }
                             }
                         }
 
-                        if (horizontalDrag == true) {
-                            ch.consume() // prioridad al swipe
-                            rawOffsetX += dx
-                            if (DEBUG_VERBOSE && kotlin.math.abs(dx) > 0.5f) {
-                                Log.v(TAG_SWIPE, "drag += ${"%.1f".format(dx)} → rawOffsetX=${"%.1f".format(rawOffsetX)}")
+                        when {
+                            horizontalDrag == true -> {
+                                ch.consume()
+                                rawOffsetX += dx
                             }
-                        } else if (horizontalDrag == false) {
-                            // soltamos control para scroll/zoom vertical
-                            return@awaitEachGesture
+                            horizontalDrag == false && verticalDragActive -> {
+                                ch.consume()
+                                val newY = rawOffsetY + dy
+                                rawOffsetY = if (newY < 0f) newY else newY * 0.2f // sólo arriba
+                            }
+                            else -> {
+                                return@awaitEachGesture // cede vertical normal al hijo
+                            }
                         }
                     }
 
-                    Log.d(TAG_SWIPE, "end dragX=$dragX threshold=$thresholdPx")
                     when {
-                        dragX > thresholdPx -> {
-                            Log.d(TAG_SWIPE, "→ SWIPE RIGHT (keep)")
-                            rawOffsetX = with(density) { screenWidthDp.dp.toPx() } * 2f
+                        dragX > thresholdX -> {
+                            rawOffsetX = screenWidthPx * 2f
                             onSwipeRight()
-                            rawOffsetX = 0f
+                            rawOffsetX = 0f; rawOffsetY = 0f
                         }
-                        dragX < -thresholdPx -> {
-                            Log.d(TAG_SWIPE, "→ SWIPE LEFT (trash)")
-                            rawOffsetX = -with(density) { screenWidthDp.dp.toPx() } * 2f
+                        dragX < -thresholdX -> {
+                            rawOffsetX = -screenWidthPx * 2f
                             onSwipeLeft()
-                            rawOffsetX = 0f
+                            rawOffsetX = 0f; rawOffsetY = 0f
+                        }
+                        verticalDragActive && (-dragY > thresholdY) -> {
+                            rawOffsetY = -screenHeightPx * 0.8f
+                            onSwipeUp()
+                            rawOffsetY = 0f; rawOffsetX = 0f
                         }
                         else -> {
-                            Log.d(TAG_SWIPE, "→ SNAP BACK (no umbral)")
                             rawOffsetX = 0f
+                            rawOffsetY = 0f
                         }
                     }
                 }
             }
-            .graphicsLayer { translationX = dragX; rotationZ = rotation }
+            .graphicsLayer {
+                translationX = dragX
+                translationY = dragY
+                rotationZ = rotation
+            }
             .clip(RoundedCornerShape(24.dp)),
         shape = RoundedCornerShape(24.dp)
     ) {
         Box(Modifier.background(MaterialTheme.colorScheme.surface)) {
             content()
-            SwipeFeedbackOverlay(progress = progress)
+            SwipeFeedbackOverlay(progressX = progressX, upProgress = upProgress)
         }
     }
 }
