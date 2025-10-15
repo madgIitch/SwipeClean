@@ -1,4 +1,4 @@
-package com.example.swipeclean.billing
+package com.example.swipeclean.zen.billing
 
 import android.app.Activity
 import android.util.Log
@@ -103,15 +103,11 @@ class BillingManager(private val activity: Activity) {
             .setProductList(productList)
             .build()
 
-        billingClient.queryProductDetailsAsync(params) { billingResult, productDetailsList ->
+        billingClient.queryProductDetailsAsync(params) { billingResult, details ->
             if (billingResult.responseCode == BillingClient.BillingResponseCode.OK) {
-                // ✅ CORRECCIÓN: Usar isEmpty() y iterator().next()
-                val productDetails: ProductDetails? =
-                    if (productDetailsList != null && !productDetailsList.isEmpty()) {
-                        productDetailsList.iterator().next()
-                    } else {
-                        null
-                    }
+                // Normaliza el tipo aunque venga de plataforma Java
+                val list = (details as? List<*>)?.filterIsInstance<ProductDetails>().orEmpty()
+                val productDetails: ProductDetails? = list.firstOrNull()
 
                 if (productDetails != null) {
                     val productDetailsParamsList = listOf(
@@ -135,7 +131,10 @@ class BillingManager(private val activity: Activity) {
                 _purchaseState.value = PurchaseState.Error(billingResult.debugMessage)
             }
         }
+
     }
+
+
     private fun handlePurchase(purchase: Purchase) {
         if (purchase.purchaseState == Purchase.PurchaseState.PURCHASED) {
             if (!purchase.isAcknowledged) {
