@@ -108,7 +108,7 @@ fun CardScreen(vm: GalleryViewModel) {
         if (result.resultCode == android.app.Activity.RESULT_OK) {
             val idx = result.data?.getIntExtra(EXTRA_SELECTED_INDEX, clampedIndex) ?: clampedIndex
             Log.d(TAG_UI, "GalleryActivity → selected_index=$idx")
-            vm.jumpTo(idx) // o vm.setIndex(idx) si tu VM lo usa
+            vm.jumpTo(idx)
         }
     }
 
@@ -135,7 +135,7 @@ fun CardScreen(vm: GalleryViewModel) {
                 onCounterClick = {
                     if (items.isEmpty()) return@FancyTopBar
                     val ids   = LongArray(items.size) { i -> extractIdFromUri(items[i].uri) }
-                    val kinds = IntArray(items.size)  { i -> toKindInt(items[i].uri) } // 1=image, 2=video
+                    val kinds = IntArray(items.size)  { i -> toKindInt(items[i].uri) }
                     val intent = Intent(ctx, GalleryActivity::class.java).apply {
                         putExtra("ids", ids)
                         putExtra("kinds", kinds)
@@ -144,12 +144,11 @@ fun CardScreen(vm: GalleryViewModel) {
                     galleryLauncher.launch(intent)
                 },
                 onStatsClick = {
-                    // Abrir nueva StatsActivity o mostrar dialog
                     val intent = Intent(ctx, StatsActivity::class.java).apply {
                         putExtra("total_bytes", totalDeletedBytes)
                         putExtra("total_count", totalDeletedCount)
                     }
-                    ctx.startActivity(intent) // ✅ ESTO YA ESTÁ CORRECTO
+                    ctx.startActivity(intent)
                 }
             )
         },

@@ -62,6 +62,7 @@ dependencies {
     implementation(libs.androidx.material3)
     implementation(libs.androidx.palette.ktx)
     implementation(libs.androidx.compose.foundation)
+    implementation(libs.billing.ktx)
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
     androidTestImplementation(platform(libs.androidx.compose.bom))
@@ -86,6 +87,9 @@ dependencies {
 
     //Graficos
     implementation("com.patrykandpatrick.vico:compose:1.13.1")
+
+    // Google Play Billing v6 (última versión estable)
+    implementation("com.android.billingclient:billing-ktx:6.1.0")
 
     // Tests
     testImplementation(libs.junit)

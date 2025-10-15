@@ -27,6 +27,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.unit.dp
+import com.example.swipeclean.zen.ZenMode
 import kotlin.math.abs
 import kotlin.math.sign
 
@@ -36,6 +37,7 @@ private const val DEBUG_VERBOSE = false
 @Composable
 fun SwipeableCard(
     swipeEnabled: Boolean = true,
+    zenMode: ZenMode? = null,
     onSwipeLeft: () -> Unit,
     onSwipeRight: () -> Unit,
     onSwipeUp: () -> Unit,
