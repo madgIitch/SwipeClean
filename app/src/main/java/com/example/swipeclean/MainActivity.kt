@@ -110,8 +110,8 @@ class MainActivity : ComponentActivity() {
                 Surface(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(MaterialTheme.colorScheme.background),
-                    color = MaterialTheme.colorScheme.background
+                        .background(Color.Transparent),  // ← Cambiar a transparente
+                    color = Color.Transparent  // ← Cambiar a transparente
                 ) {
                     // Si CardScreen necesita lanzar un IntentSender del sistema, pásale ::launchIntentSender.
                     CardScreen(vm = vm)

@@ -127,7 +127,7 @@ fun SwipeableCard(
     Card(
         modifier = Modifier
             .fillMaxSize()
-            .padding(24.dp)
+            .padding(if (isZenMode) 0.dp else 24.dp)
             .pointerInput(swipeEnabled, isZenMode) {
                 awaitEachGesture {
                     // Esperar primer evento de puntero
@@ -315,13 +315,16 @@ fun SwipeableCard(
             .graphicsLayer {
                 translationX = dragX
                 translationY = dragY
-                rotationZ = rotation
+                rotationZ = if (isZenMode) 0f else rotation  // ← Sin rotación en ZenMode
             }
             .clip(RoundedCornerShape(24.dp)),
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (isZenMode) Color.Transparent
             else MaterialTheme.colorScheme.surface
+        ),
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = if (isZenMode) 0.dp else 1.dp  // ← Sin elevación en ZenMode
         )
     ) {
         Box(Modifier.background(

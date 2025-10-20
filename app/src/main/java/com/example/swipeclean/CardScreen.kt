@@ -126,7 +126,7 @@ fun CardScreen(vm: GalleryViewModel) {
     }
 
     Scaffold(
-        containerColor = Color.Transparent,
+        containerColor = if (zenMode.isEnabled) Color.Transparent else MaterialTheme.colorScheme.background,
         contentColor = MaterialTheme.colorScheme.onBackground,
         topBar = {
             FancyTopBar(
