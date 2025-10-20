@@ -162,19 +162,24 @@ fun CardScreen(vm: GalleryViewModel) {
             ) {
                 RoundActionIcon(
                     icon = R.drawable.ic_delete,
-                    contentDesc = "Borrar",
+                    contentDesc = "Delete",
                     onClick = { Log.d(TAG_UI, "BottomBar.delete → vm.markForTrash()"); vm.markForTrash() },
-                    container = MaterialTheme.colorScheme.errorContainer,
-                    content   = MaterialTheme.colorScheme.onErrorContainer,
                     size = 80.dp
+
+                )
+                RoundActionIcon(
+                    icon = R.drawable.ic_share,
+                    contentDesc = "Share",
+                    onClick = { Log.d(TAG_UI, "BottomBar.share → shareCurrent()"); shareCurrent() },
+                    size = 64.dp
+
                 )
                 RoundActionIcon(
                     icon = R.drawable.ic_check,
-                    contentDesc = "Guardar",
+                    contentDesc = "Save",
                     onClick = { Log.d(TAG_UI, "BottomBar.keep → vm.keep()"); vm.keep() },
-                    container = MaterialTheme.colorScheme.primaryContainer,
-                    content   = MaterialTheme.colorScheme.onPrimaryContainer,
                     size = 80.dp
+
                 )
             }
         }

@@ -39,13 +39,13 @@ fun FancyTopBar(
                 Icon(
                     painterResource(R.drawable.ic_undo),
                     contentDescription = "Deshacer",
-                    tint = Color(0xFFFF9800) // 🔸 Naranja estilo Tinder
+                    tint = Color(0xFFFFFFFF)
                 )
             }
         },
         title = {
             Surface(
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.35f),
+                color = Color.Transparent, // ✅ Fondo transparente
                 shape = RoundedCornerShape(12.dp),
                 tonalElevation = 0.dp,
                 shadowElevation = 0.dp
@@ -54,7 +54,7 @@ fun FancyTopBar(
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(text = title, style = MaterialTheme.typography.titleMedium)
+                    Text(text = title, style = MaterialTheme.typography.titleLarge)
                     Spacer(Modifier.width(8.dp))
                     // 👇 Reemplaza el texto por un CounterPill clicable
                     CounterPill(
@@ -73,7 +73,7 @@ fun FancyTopBar(
                 Icon(
                     painterResource(R.drawable.ic_stats), // necesitarás este icono
                     contentDescription = "Estadísticas",
-                    tint = MaterialTheme.colorScheme.primary
+                    tint = Color(0xFFFFFFFF)
                 )
             }
 

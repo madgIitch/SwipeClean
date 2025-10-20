@@ -15,9 +15,9 @@ fun RoundActionIcon(
     @DrawableRes icon: Int,
     contentDesc: String,
     onClick: () -> Unit,
-    container: Color,
-    content: Color,
-    size: Dp = 64.dp // por defecto
+    container: Color = Color.Transparent, // ✅ Fondo transparente por defecto
+    content: Color = Color.White,         // ✅ Color blanco por defecto
+    size: Dp = 64.dp
 ) {
     FilledIconButton(
         onClick = onClick,
@@ -30,8 +30,7 @@ fun RoundActionIcon(
         Icon(
             painter = painterResource(icon),
             contentDescription = contentDesc,
-            modifier = Modifier.size(size * 0.4f) // icono proporcional
+            modifier = Modifier.size(size * 0.4f)
         )
     }
 }
-

@@ -42,6 +42,7 @@ fun VideoPlayer(
         // Renderers con fallback si el HW decoder no soporta el perfil
         val renderers = DefaultRenderersFactory(context)
             .setEnableDecoderFallback(true)
+            .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER) // ✅ NUEVO
 
         // DataSource que soporta content:// (y http:// si alguna vez lo usas)
         val httpFactory = DefaultHttpDataSource.Factory()
@@ -96,6 +97,25 @@ fun VideoPlayer(
             }
             override fun onPlayerError(error: PlaybackException) {
                 Log.e(TAG, "playerError: ${error.errorCodeName} - ${error.message}", error)
+
+                // ✅ NUEVO: Manejo específico para errores de codec
+                if (error.errorCode == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED ||
+                    error.errorCode == PlaybackException.ERROR_CODE_FAILED_RUNTIME_CHECK) {
+
+                    Log.w(TAG, "Codec error detected, attempting recovery...")
+
+                    // Liberar y recrear el player
+                    try {
+                        exoPlayer.stop()
+                        exoPlayer.clearMediaItems()
+                        exoPlayer.setMediaItem(MediaItem.fromUri(uri))
+                        exoPlayer.prepare()
+                        if (autoPlay) exoPlayer.play()
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Recovery failed", e)
+                    }
+                }
+
                 (error.cause as? MediaCodecRenderer.DecoderInitializationException)?.let { c ->
                     Log.e(TAG, "Decoder init failed → mime=${c.mimeType} secure=${c.secureDecoderRequired} diag=${c.diagnosticInfo}")
                 }
@@ -109,17 +129,39 @@ fun VideoPlayer(
     DisposableEffect(lifecycleOwner, exoPlayer) {
         val obs = LifecycleEventObserver { _, e ->
             when (e) {
-                Lifecycle.Event.ON_RESUME -> if (autoPlay) exoPlayer.play()
-                Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> exoPlayer.pause()
+                Lifecycle.Event.ON_RESUME -> {
+                    // ✅ Verificar que el player no esté liberado
+                    if (autoPlay && exoPlayer.playbackState != Player.STATE_IDLE) {
+                        try {
+                            exoPlayer.play()
+                        } catch (e: IllegalStateException) {
+                            Log.e(TAG, "Cannot play - player may be released", e)
+                        }
+                    }
+                }
+                Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> {
+                    try {
+                        exoPlayer.pause()
+                    } catch (e: IllegalStateException) {
+                        Log.e(TAG, "Cannot pause - player may be released", e)
+                    }
+                }
                 else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(obs)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(obs)
-            exoPlayer.release()
+            // ✅ Asegurar que el player se libere de forma segura
+            try {
+                exoPlayer.stop()
+                exoPlayer.release()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error releasing player", e)
+            }
         }
     }
+
 
     AndroidView(
         modifier = modifier,
