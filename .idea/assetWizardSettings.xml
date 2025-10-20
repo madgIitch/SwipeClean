@@ -312,8 +312,9 @@
                         </option>
                         <option name="values">
                           <map>
-                            <entry key="outputName" value="ic_back" />
-                            <entry key="sourceFile" value="C:\Users\peorr\Desktop\SwipeClean\app\src\main\res\drawable\ic_swipe.svg" />
+                            <entry key="assetSourceType" value="FILE" />
+                            <entry key="outputName" value="ic_zen" />
+                            <entry key="sourceFile" value="C:\Users\peorr\Downloads\self_improvement_24dp_000000_FILL0_wght400_GRAD0_opsz24.svg" />
                           </map>
                         </option>
                       </PersistentState>

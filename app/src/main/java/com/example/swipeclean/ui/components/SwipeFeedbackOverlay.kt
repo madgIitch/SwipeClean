@@ -19,7 +19,8 @@ import kotlin.math.min
 @Composable
 fun SwipeFeedbackOverlay(
     progressX: Float, // -1 … +1
-    upProgress: Float // 0 … 1
+    upProgress: Float, // 0 … 1
+    downProgress: Float = 0f // ← AÑADIR ESTO
 ) {
     val alphaX = min(1f, abs(progressX))
     val isRight = progressX > 0f
@@ -28,6 +29,9 @@ fun SwipeFeedbackOverlay(
 
     val showUp = upProgress > 0.01f
     val alphaUp = upProgress.coerceIn(0f, 1f)
+
+    val showDown = downProgress > 0.01f
+    val alphaDown = downProgress.coerceIn(0f, 1f)
 
     Box(Modifier.fillMaxSize()) {
         AssistChip(
@@ -51,6 +55,20 @@ fun SwipeFeedbackOverlay(
                     .padding(top = 24.dp)
                     .align(Alignment.TopCenter)
                     .graphicsLayer { alpha = alphaUp }
+            )
+        }
+
+        // Indicador para swipe down (ZenMode)
+        if (showDown) {
+            AssistChip(
+                onClick = {},
+                leadingIcon = { Icon(painterResource(R.drawable.ic_zen), null) }, // necesitas este icono
+                label = { Text("Zen Mode") },
+                enabled = false,
+                modifier = Modifier
+                    .padding(top = 24.dp)
+                    .align(Alignment.TopCenter)
+                    .graphicsLayer { alpha = alphaDown }
             )
         }
     }

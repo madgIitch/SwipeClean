@@ -4,7 +4,6 @@ import android.content.ContentUris
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
-import android.provider.MediaStore
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -25,12 +24,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.example.swipeclean.ui.components.AdaptiveBackdrop
-import com.example.swipeclean.ui.components.DebugGestureEnv
-import com.example.swipeclean.ui.components.FancyTopBar
-import com.example.swipeclean.ui.components.MediaCard
-import com.example.swipeclean.ui.components.RoundActionIcon
-import com.example.swipeclean.ui.components.SwipeableCard
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.swipeclean.ui.components.*
+import com.example.swipeclean.zen.ZenViewModel
 import com.madglitch.swipeclean.GalleryViewModel
 
 private const val TAG_UI = "SwipeClean/UI"
@@ -40,6 +36,10 @@ private const val TAG_UI = "SwipeClean/UI"
 @Composable
 fun CardScreen(vm: GalleryViewModel) {
     DebugGestureEnv()
+
+    // Obtener ZenViewModel
+    val zenViewModel: ZenViewModel = viewModel()
+    val zenMode by zenViewModel.zenMode.collectAsState()
 
     val items by vm.items.collectAsState()
     val index by vm.index.collectAsState()
@@ -52,10 +52,11 @@ fun CardScreen(vm: GalleryViewModel) {
     LaunchedEffect(items.size) { Log.d(TAG_UI, "items.size=${items.size}") }
     LaunchedEffect(index)      { Log.d(TAG_UI, "index=$index (items.size=${items.size})") }
     LaunchedEffect(filter)     { Log.d(TAG_UI, "filter=$filter") }
+    LaunchedEffect(zenMode.isEnabled) {
+        Log.d(TAG_UI, "ZenMode state changed: isEnabled=${zenMode.isEnabled}")
+    }
 
-    // ——————————————————————————————————————————
     // Compartir elemento actual (ACTION_SEND)
-    // ——————————————————————————————————————————
     fun shareCurrent() {
         val item = vm.current() ?: return
         val uri = item.uri
@@ -165,21 +166,18 @@ fun CardScreen(vm: GalleryViewModel) {
                     contentDesc = "Delete",
                     onClick = { Log.d(TAG_UI, "BottomBar.delete → vm.markForTrash()"); vm.markForTrash() },
                     size = 80.dp
-
                 )
                 RoundActionIcon(
                     icon = R.drawable.ic_share,
                     contentDesc = "Share",
                     onClick = { Log.d(TAG_UI, "BottomBar.share → shareCurrent()"); shareCurrent() },
                     size = 64.dp
-
                 )
                 RoundActionIcon(
                     icon = R.drawable.ic_check,
                     contentDesc = "Save",
                     onClick = { Log.d(TAG_UI, "BottomBar.keep → vm.keep()"); vm.keep() },
                     size = 80.dp
-
                 )
             }
         }
@@ -219,6 +217,10 @@ fun CardScreen(vm: GalleryViewModel) {
                                 onSwipeUp    = {
                                     Log.d(TAG_UI, "onSwipeUp → shareCurrent()")
                                     shareCurrent()
+                                },
+                                onSwipeDown = {
+                                    Log.d(TAG_UI, "onSwipeDown → zenViewModel.toggleZenMode(true)")
+                                    zenViewModel.toggleZenMode(true)
                                 }
                             ) {
                                 MediaCard(
@@ -241,15 +243,10 @@ fun CardScreen(vm: GalleryViewModel) {
     }
 }
 
-// ——————————————————————————————————————————
 // Helpers
-// ——————————————————————————————————————————
-
-/** Extrae el ID del content:// de MediaStore de forma segura. */
 private fun extractIdFromUri(uri: Uri): Long =
     try { ContentUris.parseId(uri) } catch (_: Throwable) { -1L }
 
-/** 1 = imagen, 2 = vídeo (heurística por ruta). */
 private fun toKindInt(uri: Uri): Int {
     val path = uri.path.orEmpty().lowercase()
     return when {

@@ -29,7 +29,6 @@ import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.unit.dp
 import com.example.swipeclean.zen.ZenMode
 import kotlin.math.abs
-import kotlin.math.sign
 
 private const val TAG_SWIPE = "SwipeClean/Swipe"
 private const val DEBUG_VERBOSE = false
@@ -41,6 +40,7 @@ fun SwipeableCard(
     onSwipeLeft: () -> Unit,
     onSwipeRight: () -> Unit,
     onSwipeUp: () -> Unit,
+    onSwipeDown: () -> Unit,
     content: @Composable () -> Unit
 ) {
     val haptics = LocalHapticFeedback.current
@@ -50,7 +50,7 @@ fun SwipeableCard(
 
     val screenWidthPx = remember(cfg, density) { with(density) { cfg.screenWidthDp.dp.toPx() } }
     val screenHeightPx = remember(cfg, density) { with(density) { cfg.screenHeightDp.dp.toPx() } }
-    val thresholdXRef = screenWidthPx * 0.28f // ↓ un pelín más fácil (antes 0.30f)
+    val thresholdXRef = screenWidthPx * 0.28f
     val touchSlop = viewConfig.touchSlop
     val sixDpPx = with(density) { 6.dp.toPx() }
 
@@ -59,7 +59,8 @@ fun SwipeableCard(
     var vibed by remember { mutableStateOf(false) }
     var horizontalDrag by remember { mutableStateOf<Boolean?>(null) }
     var verticalDragActive by remember { mutableStateOf(false) }
-    var preArmVertical by remember { mutableStateOf(false) }
+    var preArmUp by remember { mutableStateOf(false) }
+    var preArmDown by remember { mutableStateOf(false) }
 
     val dragX by animateFloatAsState(
         targetValue = rawOffsetX,
@@ -75,10 +76,11 @@ fun SwipeableCard(
     val rotation = (dragX / 60f).coerceIn(-12f, 12f)
     val progressX = (dragX / thresholdXRef).coerceIn(-1f, 1f)
     var upProgress by remember { mutableFloatStateOf(0f) }
+    var downProgress by remember { mutableFloatStateOf(0f) }
 
-    LaunchedEffect(progressX, upProgress, swipeEnabled) {
+    LaunchedEffect(progressX, upProgress, downProgress, swipeEnabled) {
         if (!swipeEnabled) return@LaunchedEffect
-        val nearCommit = (abs(progressX) > 0.9f) || (upProgress > 0.9f)
+        val nearCommit = (abs(progressX) > 0.9f) || (upProgress > 0.9f) || (downProgress > 0.9f)
         if (!vibed && nearCommit) {
             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
             vibed = true
@@ -95,34 +97,36 @@ fun SwipeableCard(
                     val first = awaitPointerEvent(pass = PointerEventPass.Initial)
                     val down = first.changes.firstOrNull() ?: return@awaitEachGesture
                     if (!swipeEnabled || down.changedToUp()) return@awaitEachGesture
-                    if (first.changes.size >= 2) return@awaitEachGesture // cede multi-touch
+                    if (first.changes.size >= 2) return@awaitEachGesture
 
                     val containerHeightPx = this.size.height.toFloat()
                     val containerWidthPx = this.size.width.toFloat()
                     val thresholdX = containerWidthPx * 0.28f
                     val thresholdY = containerHeightPx * 0.18f
-                    val flingVelocityX = 1800f // px/s para “swipe” por velocidad
+                    val flingVelocityX = 1800f
 
-                    // Pre-arm vertical en franja inferior
-                    preArmVertical = down.position.y >= (containerHeightPx * 0.60f)
+                    // Pre-arm vertical: superior para down, inferior para up
+                    preArmDown = down.position.y <= (containerHeightPx * 0.40f)
+                    preArmUp = down.position.y >= (containerHeightPx * 0.60f)
+                    val preArmVertical = preArmDown || preArmUp
+
                     verticalDragActive = false
                     horizontalDrag = null
                     vibed = false
 
-                    // Velocity tracker
                     val tracker = VelocityTracker()
                     tracker.addPosition(down.uptimeMillis, down.position)
 
                     if (preArmVertical) {
-                        // Evita que el hijo arranque zoom desde el DOWN
                         down.consume()
-                        if (DEBUG_VERBOSE) Log.v(TAG_SWIPE, "DOWN bottom-zone (preArmVertical=true)")
+                        if (DEBUG_VERBOSE) Log.v(TAG_SWIPE, "DOWN zone (preArmUp=$preArmUp preArmDown=$preArmDown)")
                     }
-                    Log.d(TAG_SWIPE, "allowUp=$preArmVertical downY=${down.position.y} height=$containerHeightPx")
+                    Log.d(TAG_SWIPE, "preArmUp=$preArmUp preArmDown=$preArmDown downY=${down.position.y} height=$containerHeightPx")
 
                     var totalX = 0f
                     var totalY = 0f
                     var upwardAbs = 0f
+                    var downwardAbs = 0f
 
                     while (true) {
                         val ev = awaitPointerEvent(pass = PointerEventPass.Initial)
@@ -137,36 +141,39 @@ fun SwipeableCard(
                         totalX += abs(dx)
                         totalY += abs(dy)
                         if (dy < 0f) upwardAbs += -dy
+                        if (dy > 0f) downwardAbs += dy
 
                         if (horizontalDrag == null && !verticalDragActive) {
                             val horizAdv = totalX - totalY
 
-                            // (A) Lock horizontal más agresivo
+                            // (A) Lock horizontal
                             val strongHorizontal = (abs(dx) > abs(dy)) && (totalX > touchSlop * 0.5f)
                             if (horizAdv > touchSlop || strongHorizontal) {
                                 horizontalDrag = true
-                                preArmVertical = false // desarma vertical si gana horizontal
-                                if (DEBUG_VERBOSE) Log.v(TAG_SWIPE, "→ Lock H (X=$totalX Y=$totalY strong=$strongHorizontal)")
+                                preArmUp = false
+                                preArmDown = false
+                                if (DEBUG_VERBOSE) Log.v(TAG_SWIPE, "→ Lock H (X=$totalX Y=$totalY)")
                             } else {
-                                // (B) Activar vertical con intención real hacia ARRIBA
-                                val verticalIntent =
-                                    preArmVertical &&
-                                            upwardAbs > sixDpPx &&
-                                            (upwardAbs - totalX) > (touchSlop * 0.5f)
+                                // (B) Activar vertical con intención real
+                                val verticalUpIntent = preArmUp &&
+                                        upwardAbs > sixDpPx &&
+                                        (upwardAbs - totalX) > (touchSlop * 0.5f)
 
-                                if (verticalIntent) {
+                                val verticalDownIntent = preArmDown &&
+                                        downwardAbs > sixDpPx &&
+                                        (downwardAbs - totalX) > (touchSlop * 0.5f)
+
+                                if (verticalUpIntent || verticalDownIntent) {
                                     verticalDragActive = true
-                                    if (DEBUG_VERBOSE) Log.v(TAG_SWIPE, "→ Lock V (up=$upwardAbs X=$totalX)")
+                                    if (DEBUG_VERBOSE) Log.v(TAG_SWIPE, "→ Lock V (up=$upwardAbs down=$downwardAbs X=$totalX)")
                                 } else {
-                                    // (C) Micro-preconsumo:
-                                    //  - si pinta a horizontal, consume para que el hijo no robe
-                                    //  - si venimos pre-armados para vertical, consume también
+                                    // (C) Micro-preconsumo
                                     val maybeHorizontal = (!preArmVertical && abs(dx) > abs(dy) && totalX > touchSlop * 0.3f)
                                     if (maybeHorizontal || preArmVertical) ch.consume()
                                 }
                             }
                         } else {
-                            // Modo decidido → consumir según corresponda
+                            // Modo decidido
                             when {
                                 horizontalDrag == true -> {
                                     ch.consume()
@@ -174,26 +181,27 @@ fun SwipeableCard(
                                 }
                                 verticalDragActive -> {
                                     ch.consume()
-                                    val newY = rawOffsetY + dy
-                                    rawOffsetY = if (newY < 0f) newY else newY * 0.2f
+                                    rawOffsetY += dy
                                 }
                             }
                         }
-                        // No salimos; seguimos hasta up o lock claro.
                     }
 
-                    // Velocidad del gesto al soltar
+                    // Velocidad del gesto
                     val velocity = tracker.calculateVelocity()
                     val vX = velocity.x
 
                     val endUpProgress = (-(dragY) / thresholdY).coerceIn(0f, 1f)
+                    val endDownProgress = (dragY / thresholdY).coerceIn(0f, 1f)
                     upProgress = endUpProgress
+                    downProgress = endDownProgress
+
                     Log.d(
                         TAG_SWIPE,
-                        "end dragX=$dragX dragY=$dragY upProg=$endUpProgress thrX=$thresholdX thrY=$thresholdY"
+                        "end dragX=$dragX dragY=$dragY upProg=$endUpProgress downProg=$endDownProgress"
                     )
 
-                    // Resolución por distancia o por velocidad
+                    // Resolución
                     when {
                         // Swipe lateral por distancia
                         dragX > thresholdX -> {
@@ -206,7 +214,7 @@ fun SwipeableCard(
                             onSwipeLeft()
                             rawOffsetX = 0f; rawOffsetY = 0f
                         }
-                        // Swipe lateral por velocidad (fling)
+                        // Swipe lateral por velocidad
                         abs(vX) > flingVelocityX -> {
                             if (vX > 0f) {
                                 rawOffsetX = containerWidthPx * 2f
@@ -218,17 +226,23 @@ fun SwipeableCard(
                             rawOffsetX = 0f; rawOffsetY = 0f
                         }
                         // Swipe up por distancia
-                        verticalDragActive && (-dragY > thresholdY) -> {
+                        verticalDragActive && preArmUp && (-dragY > thresholdY) -> {
                             rawOffsetY = -containerHeightPx * 0.8f
                             onSwipeUp()
+                            rawOffsetY = 0f; rawOffsetX = 0f
+                        }
+                        // Swipe down por distancia ← AÑADIR ESTE CASO
+                        verticalDragActive && preArmDown && (dragY > thresholdY) -> {
+                            Log.d(TAG_SWIPE, "→ SWIPE DOWN (zen mode)")
+                            rawOffsetY = containerHeightPx * 0.8f
+                            onSwipeDown()
                             rawOffsetY = 0f; rawOffsetX = 0f
                         }
                         else -> {
                             rawOffsetX = 0f
                             rawOffsetY = 0f
                         }
-                    }
-                }
+                    }                }
             }
             .graphicsLayer {
                 translationX = dragX
@@ -242,7 +256,8 @@ fun SwipeableCard(
             content()
             SwipeFeedbackOverlay(
                 progressX = (dragX / thresholdXRef).coerceIn(-1f, 1f),
-                upProgress = upProgress
+                upProgress = upProgress,
+                downProgress = downProgress
             )
         }
     }
