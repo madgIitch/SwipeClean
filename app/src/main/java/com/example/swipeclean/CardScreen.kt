@@ -135,8 +135,8 @@ fun CardScreen(vm: GalleryViewModel) {
                 onFilterChange = { Log.d(TAG_UI, "TopBar.onFilterChange($it)"); vm.setFilter(it) },
                 onCounterClick = {
                     if (items.isEmpty()) return@FancyTopBar
-                    val ids   = LongArray(items.size) { i -> extractIdFromUri(items[i].uri) }
-                    val kinds = IntArray(items.size)  { i -> toKindInt(items[i].uri) }
+                    val ids = LongArray(items.size) { i -> extractIdFromUri(items[i].uri) }
+                    val kinds = IntArray(items.size) { i -> toKindInt(items[i].uri) }
                     val intent = Intent(ctx, GalleryActivity::class.java).apply {
                         putExtra("ids", ids)
                         putExtra("kinds", kinds)
@@ -164,84 +164,119 @@ fun CardScreen(vm: GalleryViewModel) {
                 RoundActionIcon(
                     icon = R.drawable.ic_delete,
                     contentDesc = "Delete",
-                    onClick = { Log.d(TAG_UI, "BottomBar.delete → vm.markForTrash()"); vm.markForTrash() },
+                    onClick = {
+                        Log.d(TAG_UI, "BottomBar.delete → vm.markForTrash()")
+                        vm.markForTrash()
+                    },
+                    container = MaterialTheme.colorScheme.errorContainer,
+                    content = MaterialTheme.colorScheme.onErrorContainer,
                     size = 80.dp
                 )
                 RoundActionIcon(
                     icon = R.drawable.ic_share,
                     contentDesc = "Share",
-                    onClick = { Log.d(TAG_UI, "BottomBar.share → shareCurrent()"); shareCurrent() },
+                    onClick = {
+                        Log.d(TAG_UI, "BottomBar.share → shareCurrent()")
+                        shareCurrent()
+                    },
                     size = 64.dp
                 )
                 RoundActionIcon(
                     icon = R.drawable.ic_check,
                     contentDesc = "Save",
-                    onClick = { Log.d(TAG_UI, "BottomBar.keep → vm.keep()"); vm.keep() },
+                    onClick = {
+                        Log.d(TAG_UI, "BottomBar.keep → vm.keep()")
+                        vm.keep()
+                    },
+                    container = MaterialTheme.colorScheme.primaryContainer,
+                    content = MaterialTheme.colorScheme.onPrimaryContainer,
                     size = 80.dp
                 )
             }
         }
     ) { padding ->
-        AdaptiveBackdrop(currentItem) {
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-            ) {
-                if (total == 0) {
-                    Log.w(TAG_UI, "Galería vacía")
-                    Text("No hay elementos en la galería", Modifier.align(Alignment.Center))
-                } else {
-                    AnimatedContent(
-                        targetState = clampedIndex,
-                        transitionSpec = {
-                            fadeIn(animationSpec = tween(180)) togetherWith
-                                    fadeOut(animationSpec = tween(120))
-                        },
-                        label = "MediaCrossfade"
-                    ) { idx ->
-                        val itemAt = items.getOrNull(idx)
-                        Log.d(TAG_UI, "AnimatedContent idx=$idx uri=${itemAt?.uri}")
+        Box(Modifier.fillMaxSize()) {
+            // Contenido principal
+            AdaptiveBackdrop(currentItem) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .padding(padding)
+                ) {
+                    if (total == 0) {
+                        Log.w(TAG_UI, "Galería vacía")
+                        Text("No hay elementos en la galería", Modifier.align(Alignment.Center))
+                    } else {
+                        AnimatedContent(
+                            targetState = clampedIndex,
+                            transitionSpec = {
+                                fadeIn(animationSpec = tween(180)) togetherWith
+                                        fadeOut(animationSpec = tween(120))
+                            },
+                            label = "MediaCrossfade"
+                        ) { idx ->
+                            val itemAt = items.getOrNull(idx)
+                            Log.d(TAG_UI, "AnimatedContent idx=$idx uri=${itemAt?.uri}")
 
-                        if (itemAt != null) {
-                            SwipeableCard(
-                                swipeEnabled = swipeEnabled,
-                                onSwipeLeft  = {
-                                    Log.d(TAG_UI, "onSwipeLeft → vm.markForTrash()")
-                                    vm.markForTrash()
-                                },
-                                onSwipeRight = {
-                                    Log.d(TAG_UI, "onSwipeRight → vm.keep()")
-                                    vm.keep()
-                                },
-                                onSwipeUp    = {
-                                    Log.d(TAG_UI, "onSwipeUp → shareCurrent()")
-                                    shareCurrent()
-                                },
-                                onSwipeDown = {
-                                    Log.d(TAG_UI, "onSwipeDown → zenViewModel.toggleZenMode(true)")
-                                    zenViewModel.toggleZenMode(true)
-                                }
-                            ) {
-                                MediaCard(
-                                    item = itemAt,
-                                    onSwipeEnabledChange = { enabled ->
-                                        Log.d(TAG_UI, "onSwipeEnabledChange($enabled)")
-                                        swipeEnabled = enabled
+                            if (itemAt != null) {
+                                SwipeableCard(
+                                    swipeEnabled = swipeEnabled,
+                                    zenMode = zenMode,
+                                    onSwipeLeft = {
+                                        Log.d(TAG_UI, "onSwipeLeft → vm.markForTrash()")
+                                        vm.markForTrash()
+                                    },
+                                    onSwipeRight = {
+                                        Log.d(TAG_UI, "onSwipeRight → vm.keep()")
+                                        vm.keep()
+                                    },
+                                    onSwipeUp = {
+                                        Log.d(TAG_UI, "onSwipeUp → shareCurrent()")
+                                        shareCurrent()
+                                    },
+                                    onSwipeDown = {
+                                        Log.d(TAG_UI, "onSwipeDown → zenViewModel.toggleZenMode(true)")
+                                        zenViewModel.toggleZenMode(true)
                                     }
-                                )
-                            }
-                        } else {
-                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Text("Cargando…")
+                                ) {
+                                    MediaCard(
+                                        item = itemAt,
+                                        onSwipeEnabledChange = { enabled ->
+                                            Log.d(TAG_UI, "onSwipeEnabledChange($enabled)")
+                                            swipeEnabled = enabled
+                                        }
+                                    )
+                                    // Overlay de ZenMode
+                                    ZenModeOverlay(
+                                        zenMode = zenMode,
+                                        onDismiss = {
+                                            Log.d(TAG_UI, "ZenMode dismissed")
+                                            zenViewModel.toggleZenMode(false)
+                                        }
+                                    )
+                                }
+                            } else {
+                                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    Text("Cargando…")
+                                }
                             }
                         }
                     }
                 }
             }
+
+            // ZenMode Overlay - se renderiza encima de todo
+            ZenModeOverlay(
+                zenMode = zenMode,
+                onDismiss = {
+                    Log.d(TAG_UI, "ZenMode dismissed")
+                    zenViewModel.toggleZenMode(false)
+                }
+            )
         }
     }
 }
+
 
 // Helpers
 private fun extractIdFromUri(uri: Uri): Long =

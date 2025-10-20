@@ -54,6 +54,9 @@ fun SwipeableCard(
     val touchSlop = viewConfig.touchSlop
     val sixDpPx = with(density) { 6.dp.toPx() }
 
+    // Detectar si estamos en ZenMode
+    val isZenMode = zenMode?.isEnabled == true
+
     var rawOffsetX by remember { mutableFloatStateOf(0f) }
     var rawOffsetY by remember { mutableFloatStateOf(0f) }
     var vibed by remember { mutableStateOf(false) }
@@ -69,7 +72,10 @@ fun SwipeableCard(
     )
     val dragY by animateFloatAsState(
         targetValue = rawOffsetY,
-        animationSpec = spring(dampingRatio = 0.80f, stiffness = Spring.StiffnessLow),
+        animationSpec = spring(
+            dampingRatio = if (isZenMode) 0.85f else 0.80f,
+            stiffness = if (isZenMode) Spring.StiffnessVeryLow else Spring.StiffnessLow
+        ),
         label = "dragY"
     )
 
@@ -78,11 +84,18 @@ fun SwipeableCard(
     var upProgress by remember { mutableFloatStateOf(0f) }
     var downProgress by remember { mutableFloatStateOf(0f) }
 
-    LaunchedEffect(progressX, upProgress, downProgress, swipeEnabled) {
+    // Hápticos adaptados al ZenMode
+    LaunchedEffect(progressX, upProgress, downProgress, swipeEnabled, isZenMode) {
         if (!swipeEnabled) return@LaunchedEffect
         val nearCommit = (abs(progressX) > 0.9f) || (upProgress > 0.9f) || (downProgress > 0.9f)
         if (!vibed && nearCommit) {
-            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+            // En ZenMode, usar háptico más suave
+            val feedbackType = if (isZenMode) {
+                HapticFeedbackType.TextHandleMove
+            } else {
+                HapticFeedbackType.LongPress
+            }
+            haptics.performHapticFeedback(feedbackType)
             vibed = true
         }
         if (!nearCommit && vibed) vibed = false
@@ -92,7 +105,7 @@ fun SwipeableCard(
         modifier = Modifier
             .fillMaxSize()
             .padding(24.dp)
-            .pointerInput(swipeEnabled) {
+            .pointerInput(swipeEnabled, isZenMode) {
                 awaitEachGesture {
                     val first = awaitPointerEvent(pass = PointerEventPass.Initial)
                     val down = first.changes.firstOrNull() ?: return@awaitEachGesture
@@ -121,7 +134,7 @@ fun SwipeableCard(
                         down.consume()
                         if (DEBUG_VERBOSE) Log.v(TAG_SWIPE, "DOWN zone (preArmUp=$preArmUp preArmDown=$preArmDown)")
                     }
-                    Log.d(TAG_SWIPE, "preArmUp=$preArmUp preArmDown=$preArmDown downY=${down.position.y} height=$containerHeightPx")
+                    Log.d(TAG_SWIPE, "preArmUp=$preArmUp preArmDown=$preArmDown downY=${down.position.y} height=$containerHeightPx zenMode=$isZenMode")
 
                     var totalX = 0f
                     var totalY = 0f
@@ -198,10 +211,10 @@ fun SwipeableCard(
 
                     Log.d(
                         TAG_SWIPE,
-                        "end dragX=$dragX dragY=$dragY upProg=$endUpProgress downProg=$endDownProgress"
+                        "end dragX=$dragX dragY=$dragY upProg=$endUpProgress downProg=$endDownProgress zenMode=$isZenMode"
                     )
 
-                    // Resolución
+                    // Resolución de gestos
                     when {
                         // Swipe lateral por distancia
                         dragX > thresholdX -> {
@@ -227,11 +240,12 @@ fun SwipeableCard(
                         }
                         // Swipe up por distancia
                         verticalDragActive && preArmUp && (-dragY > thresholdY) -> {
+                            Log.d(TAG_SWIPE, "→ SWIPE UP (share)")
                             rawOffsetY = -containerHeightPx * 0.8f
                             onSwipeUp()
                             rawOffsetY = 0f; rawOffsetX = 0f
                         }
-                        // Swipe down por distancia ← AÑADIR ESTE CASO
+                        // Swipe down por distancia
                         verticalDragActive && preArmDown && (dragY > thresholdY) -> {
                             Log.d(TAG_SWIPE, "→ SWIPE DOWN (zen mode)")
                             rawOffsetY = containerHeightPx * 0.8f
@@ -242,7 +256,8 @@ fun SwipeableCard(
                             rawOffsetX = 0f
                             rawOffsetY = 0f
                         }
-                    }                }
+                    }
+                }
             }
             .graphicsLayer {
                 translationX = dragX
@@ -257,7 +272,8 @@ fun SwipeableCard(
             SwipeFeedbackOverlay(
                 progressX = (dragX / thresholdXRef).coerceIn(-1f, 1f),
                 upProgress = upProgress,
-                downProgress = downProgress
+                downProgress = downProgress,
+                isZenMode = isZenMode
             )
         }
     }

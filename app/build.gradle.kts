@@ -64,6 +64,7 @@ dependencies {
     implementation(libs.androidx.compose.foundation)
     implementation(libs.billing.ktx)
     implementation(libs.androidx.compose.runtime.saveable)
+    implementation(libs.androidx.compose.material3)
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
     androidTestImplementation(platform(libs.androidx.compose.bom))

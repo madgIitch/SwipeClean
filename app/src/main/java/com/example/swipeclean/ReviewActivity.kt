@@ -11,6 +11,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -122,7 +123,7 @@ class ReviewActivity : ComponentActivity() {
                                             .clickable(
                                                 role = Role.Checkbox,
                                                 interactionSource = interaction,
-                                                indication = rememberRipple(),
+                                                indication = LocalIndication.current,
                                                 onClick = {
                                                     if (selected.size == allCount) selected.clear()
                                                     else { selected.clear(); selected.addAll(items) }
@@ -287,7 +288,7 @@ private fun SelectableThumb(
             .clip(shape)
             .clickable(
                 interactionSource = interaction,
-                indication = rememberRipple(),
+                indication = LocalIndication.current,
                 onClick = onToggle
             )
             .fillMaxWidth()

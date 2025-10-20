@@ -10,6 +10,7 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -216,7 +217,7 @@ private fun GalleryTile(
             .background(MaterialTheme.colorScheme.surfaceVariant)
             .clickable(
                 interactionSource = interaction,
-                indication = rememberRipple(), // ✅ API nueva: pasar ripple explícitamente
+                indication = LocalIndication.current,
                 onClick = { handleClick() }
             )
             .then(Modifier.padding(0.dp)),
