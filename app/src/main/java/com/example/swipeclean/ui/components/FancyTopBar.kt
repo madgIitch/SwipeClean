@@ -77,6 +77,12 @@ fun FancyTopBar(
                 )
             }
 
+            // Menú desplegable de filtro
+            FilterDropdown(
+                current = currentFilter,
+                onSelected = onFilterChange
+            )
+
             // Botón de revisión manual
             IconButton(onClick = onReview) {
                 Icon(
@@ -86,11 +92,6 @@ fun FancyTopBar(
                 )
             }
 
-            // Menú desplegable de filtro
-            FilterDropdown(
-                current = currentFilter,
-                onSelected = onFilterChange
-            )
         }
     )
 }
