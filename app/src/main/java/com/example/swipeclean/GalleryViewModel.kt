@@ -39,21 +39,22 @@ import kotlinx.coroutines.withContext
 private val Application.userDataStore by preferencesDataStore(name = "swipeclean_user_state")
 
 // Claves legacy (retro-compat)
-private val KEY_INDEX       = intPreferencesKey("index")
+private val KEY_INDEX = intPreferencesKey("index")
 private val KEY_CURRENT_URI = stringPreferencesKey("current_uri")
-private val KEY_PENDING     = stringSetPreferencesKey("pending_uris")
-private val KEY_FILTER      = stringPreferencesKey("filter")
+private val KEY_PENDING = stringSetPreferencesKey("pending_uris")
+private val KEY_FILTER = stringPreferencesKey("filter")
 
 // Claves nuevas por filtro
 private fun keyIndexFor(filter: MediaFilter) = intPreferencesKey("index_${filter.name}")
-private fun keyUriFor(filter: MediaFilter)   = stringPreferencesKey("uri_${filter.name}")
-private fun keyIdFor(filter: MediaFilter)    = stringPreferencesKey("id_${filter.name}") // opcional (si MediaItem.id existe)
+private fun keyUriFor(filter: MediaFilter) = stringPreferencesKey("uri_${filter.name}")
+private fun keyIdFor(filter: MediaFilter) = stringPreferencesKey("id_${filter.name}")
 private val KEY_LAST_FILTER = stringPreferencesKey("last_filter")
+
+// Claves de estadísticas y progreso
 private val KEY_TOTAL_DELETED_BYTES = stringPreferencesKey("total_deleted_bytes")
 private val KEY_TOTAL_DELETED_COUNT = intPreferencesKey("total_deleted_count")
-private val KEY_SESSION_STATS = stringPreferencesKey("session_stats") // JSON con historial por fecha
+private val KEY_SESSION_STATS = stringPreferencesKey("session_stats")
 private val KEY_TUTORIAL_COMPLETED = booleanPreferencesKey("tutorial_completed")
-
 
 private data class UserState(
     val index: Int = 0,
@@ -65,27 +66,12 @@ private data class UserState(
 private suspend fun readUserState(context: Application): UserState {
     return context.userDataStore.data.map { p ->
         UserState(
-            index      = p[KEY_INDEX] ?: 0,
+            index = p[KEY_INDEX] ?: 0,
             currentUri = p[KEY_CURRENT_URI],
-            pending    = p[KEY_PENDING] ?: emptySet(),
-            filter     = p[KEY_FILTER] ?: "ALL"
+            pending = p[KEY_PENDING] ?: emptySet(),
+            filter = p[KEY_FILTER] ?: "ALL"
         )
     }.first()
-}
-
-private suspend fun saveUserState(
-    context: Application,
-    index: Int,
-    currentUri: String?,
-    pending: Set<String>,
-    filter: String
-) {
-    context.userDataStore.edit { p ->
-        p[KEY_INDEX] = index
-        if (currentUri != null) p[KEY_CURRENT_URI] = currentUri else p.remove(KEY_CURRENT_URI)
-        p[KEY_PENDING] = pending
-        p[KEY_FILTER]  = filter
-    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -97,10 +83,11 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
     // State (UI)
     // ---------------------------
 
-    //Tutorial
+    // Tutorial
     private val _tutorialCompleted = MutableStateFlow(false)
     val tutorialCompleted: StateFlow<Boolean> = _tutorialCompleted
 
+    // Items y navegación
     private val _items = MutableStateFlow<List<MediaItem>>(emptyList())
     val items: StateFlow<List<MediaItem>> = _items
 
@@ -119,17 +106,18 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
     // Historial para undo
     private sealed class UserAction {
         data class Trash(val uri: Uri) : UserAction()
-        data class Keep(val uri: Uri)  : UserAction()
+        data class Keep(val uri: Uri) : UserAction()
     }
     private val history = mutableListOf<UserAction>()
 
-
+    // Estadísticas de limpieza
     private val _totalDeletedBytes = MutableStateFlow(0L)
     val totalDeletedBytes: StateFlow<Long> = _totalDeletedBytes
 
     private val _totalDeletedCount = MutableStateFlow(0)
     val totalDeletedCount: StateFlow<Int> = _totalDeletedCount
 
+    // Métricas de almacenamiento y progreso
     private val _storageMetrics = MutableStateFlow<StorageMetrics?>(null)
     val storageMetrics: StateFlow<StorageMetrics?> = _storageMetrics
 
@@ -152,7 +140,7 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
             currentFilter = when (lastFilterName) {
                 "IMAGES" -> MediaFilter.IMAGES
                 "VIDEOS" -> MediaFilter.VIDEOS
-                else     -> MediaFilter.ALL
+                else -> MediaFilter.ALL
             }
             _filter.value = currentFilter
 
@@ -167,21 +155,23 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
             // Carga de elementos
             loadInternal(currentFilter)
 
-            // Restauración por-filtro (ID → URI → índice)
+            // Restauración de estado persistente
             val prefs = appCtx.userDataStore.data.first()
 
             // Restaurar estadísticas
             _totalDeletedBytes.value = prefs[KEY_TOTAL_DELETED_BYTES]?.toLongOrNull() ?: 0L
             _totalDeletedCount.value = prefs[KEY_TOTAL_DELETED_COUNT] ?: 0
 
-            // ✅ AÑADIR AQUÍ: Restaurar estado del tutorial
+            // Restaurar estado del tutorial
             _tutorialCompleted.value = prefs[KEY_TUTORIAL_COMPLETED] ?: false
 
+            // Calcular métricas de almacenamiento
             viewModelScope.launch {
                 _storageMetrics.value = StorageAnalyzer.calculateCleaningTarget(appCtx)
+                updateCleaningProgress()
             }
 
-
+            // Restauración por-filtro (ID → URI → índice)
             val savedIdStr = prefs[keyIdFor(currentFilter)]
             val savedUriForFilter = prefs[keyUriFor(currentFilter)]
             val savedIndexForFilter = prefs[keyIndexFor(currentFilter)] ?: legacy.index
@@ -199,8 +189,8 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
             val restored = when {
                 candidateById >= 0 -> candidateById
                 candidateByUri >= 0 -> candidateByUri
-                list.isEmpty()      -> 0
-                else                -> savedIndexForFilter.coerceIn(0, list.lastIndex)
+                list.isEmpty() -> 0
+                else -> savedIndexForFilter.coerceIn(0, list.lastIndex)
             }
 
             _index.value = restored
@@ -208,7 +198,9 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    //Tutorial completado
+    // ---------------------------
+    // Tutorial
+    // ---------------------------
     fun markTutorialCompleted() {
         viewModelScope.launch(Dispatchers.IO) {
             val appCtx = getApplication<Application>()
@@ -230,12 +222,10 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
         load(newFilter)
     }
 
-    // Ajusta los nombres si en tu VM se llaman distinto (_items/_index)
     fun jumpTo(targetIndex: Int) {
         val max = _items.value.lastIndex
         _index.value = targetIndex.coerceIn(0, max.coerceAtLeast(0))
     }
-
 
     // ---------------------------
     // Carga / Filtro
@@ -270,8 +260,8 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
             val restored = when {
                 candidateById >= 0 -> candidateById
                 candidateByUri >= 0 -> candidateByUri
-                list.isEmpty()      -> 0
-                else                -> savedIndexForFilter.coerceIn(0, list.lastIndex)
+                list.isEmpty() -> 0
+                else -> savedIndexForFilter.coerceIn(0, list.lastIndex)
             }
 
             _index.value = restored
@@ -299,7 +289,8 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
                             total += c.getLong(idx)
                         }
                     }
-                } catch (_: Exception) { }
+                } catch (_: Exception) {
+                }
             }
             total
         }
@@ -312,13 +303,19 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
     // ---------------------------
     private fun advanceIndexWrap() {
         val n = _items.value.size
-        if (n == 0) { _index.value = 0; return }
+        if (n == 0) {
+            _index.value = 0
+            return
+        }
         _index.value = (_index.value + 1) % n
     }
 
     private fun retreatIndexWrap() {
         val n = _items.value.size
-        if (n == 0) { _index.value = 0; return }
+        if (n == 0) {
+            _index.value = 0
+            return
+        }
         _index.value = (_index.value - 1 + n) % n
     }
 
@@ -343,7 +340,7 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
         else _index.value.coerceIn(0, _items.value.lastIndex)
 
         val currentUriStr = current()?.uri?.toString()
-        val currentIdStr  = current()?.id?.toString() // si MediaItem.id existe
+        val currentIdStr = current()?.id?.toString()
 
         // Síncrono en IO para resistir cierre brusco
         runCatching {
@@ -351,15 +348,21 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
                 appCtx.userDataStore.edit { p ->
                     // Por filtro actual
                     p[keyIndexFor(currentFilter)] = safeIndex
-                    if (currentUriStr != null) p[keyUriFor(currentFilter)] = currentUriStr else p.remove(keyUriFor(currentFilter))
-                    if (currentIdStr  != null) p[keyIdFor(currentFilter)]  = currentIdStr  else p.remove(keyIdFor(currentFilter))
+                    if (currentUriStr != null) p[keyUriFor(currentFilter)] = currentUriStr else p.remove(
+                        keyUriFor(currentFilter)
+                    )
+                    if (currentIdStr != null) p[keyIdFor(currentFilter)] = currentIdStr else p.remove(
+                        keyIdFor(currentFilter)
+                    )
 
                     // Último filtro usado
                     p[KEY_LAST_FILTER] = currentFilter.name
 
                     // Legacy (retro-compat)
                     p[KEY_INDEX] = safeIndex
-                    if (currentUriStr != null) p[KEY_CURRENT_URI] = currentUriStr else p.remove(KEY_CURRENT_URI)
+                    if (currentUriStr != null) p[KEY_CURRENT_URI] = currentUriStr else p.remove(
+                        KEY_CURRENT_URI
+                    )
                     p[KEY_FILTER] = currentFilter.name
                     p[KEY_PENDING] = pendingTrash.map(Uri::toString).toSet()
                 }
@@ -375,13 +378,13 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
         else _index.value.coerceIn(0, _items.value.lastIndex)
 
         val currentUriStr = current()?.uri?.toString()
-        val currentIdStr  = current()?.id?.toString()
+        val currentIdStr = current()?.id?.toString()
 
         appCtx.userDataStore.edit { p ->
             // Por filtro actual
             p[keyIndexFor(currentFilter)] = safeIndex
             if (currentUriStr != null) p[keyUriFor(currentFilter)] = currentUriStr else p.remove(keyUriFor(currentFilter))
-            if (currentIdStr  != null) p[keyIdFor(currentFilter)]  = currentIdStr  else p.remove(keyIdFor(currentFilter))
+            if (currentIdStr != null) p[keyIdFor(currentFilter)] = currentIdStr else p.remove(keyIdFor(currentFilter))
 
             // Último filtro usado
             p[KEY_LAST_FILTER] = currentFilter.name
@@ -391,6 +394,19 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
             if (currentUriStr != null) p[KEY_CURRENT_URI] = currentUriStr else p.remove(KEY_CURRENT_URI)
             p[KEY_FILTER] = currentFilter.name
             p[KEY_PENDING] = pendingTrash.map(Uri::toString).toSet()
+        }
+    }
+
+    // ---------------------------
+    // Progreso de limpieza
+    // ---------------------------
+    private fun updateCleaningProgress() {
+        val metrics = _storageMetrics.value ?: return
+        val deletedBytes = _totalDeletedBytes.value
+        val targetBytes = metrics.targetBytes
+
+        if (targetBytes > 0) {
+            _cleaningProgress.value = (deletedBytes.toFloat() / targetBytes).coerceIn(0f, 1f)
         }
     }
 
@@ -417,7 +433,6 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
     @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
     fun undo() {
         if (history.isEmpty()) return
-        // Retrocede visualmente primero
         prev()
 
         when (val last = history.removeLast()) {
@@ -449,7 +464,7 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
         if (confirmed.isEmpty()) return
 
         viewModelScope.launch {
-            // NUEVO: Calcular tamaño antes de borrar
+            // Calcular tamaño de archivos confirmados
             val deletedBytes = calculateTotalSize(confirmed)
 
             val set = confirmed.toSet()
@@ -457,65 +472,31 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
             stagedForReview.removeAll(set)
             history.clear()
 
-            // NUEVO: Actualizar estadísticas
-            _totalDeletedBytes.value += deletedBytes
-            _totalDeletedCount.value += confirmed.size
-
             loadInternal(currentFilter)
 
             val n = _items.value.size
             _index.value = if (n == 0) 0 else ((_index.value % n) + n) % n
 
-            persistStatsAsync(deletedBytes, confirmed.size)
-            persistAsync()
+            // Actualizar estadísticas
+            _totalDeletedBytes.value += deletedBytes
+            _totalDeletedCount.value += confirmed.size
 
-            // ✅ AÑADIR AQUÍ: Actualizar progreso
-            updateCleaningProgress()
-        }
-    }
-    private suspend fun calculateDeletedBytes(context: Context, uris: List<Uri>): Long = withContext(Dispatchers.IO) {
-        var total = 0L
-        uris.forEach { uri ->
-            context.contentResolver.query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)?.use { cursor ->
-                if (cursor.moveToFirst()) {
-                    val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
-                    if (sizeIndex >= 0) {
-                        total += cursor.getLong(sizeIndex)
-                    }
-                }
+            // Persistir estadísticas
+            val appCtx = getApplication<Application>()
+            appCtx.userDataStore.edit { p ->
+                p[KEY_TOTAL_DELETED_BYTES] = _totalDeletedBytes.value.toString()
+                p[KEY_TOTAL_DELETED_COUNT] = _totalDeletedCount.value
             }
+
+            // Actualizar progreso
+            updateCleaningProgress()
+
+            persistAsync()
         }
-        total
     }
+
     fun clearStage() = stagedForReview.clear()
 
-    private fun persistStatsAsync(bytesDeleted: Long, countDeleted: Int) = viewModelScope.launch(Dispatchers.IO) {
-        val appCtx = getApplication<Application>()
-        appCtx.userDataStore.edit { p ->
-            val currentTotal = p[KEY_TOTAL_DELETED_BYTES]?.toLongOrNull() ?: 0L
-            val currentCount = p[KEY_TOTAL_DELETED_COUNT] ?: 0
-
-            p[KEY_TOTAL_DELETED_BYTES] = (currentTotal + bytesDeleted).toString()
-            p[KEY_TOTAL_DELETED_COUNT] = currentCount + countDeleted
-        }
-    }
-
-    // ✅ AÑADIR AQUÍ: Método para actualizar progreso
-    fun updateCleaningProgress() {
-        val metrics = _storageMetrics.value ?: return
-        val deletedBytes = _totalDeletedBytes.value
-        val targetBytes = metrics.targetBytes
-
-        _cleaningProgress.value = if (targetBytes > 0) {
-            (deletedBytes.toFloat() / targetBytes.toFloat()).coerceIn(0f, 1f)
-        } else {
-            0f
-        }
-    }
-    /**
-     * Android 11+ (API 30): manda a Papelera con diálogo del sistema.
-     * No vacía la cola: espera a que la actividad informe del resultado.
-     */
     fun confirmTrash(
         context: Context,
         onNeedsUserConfirm: (IntentSender) -> Unit
@@ -525,18 +506,14 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
             val pi = MediaStore.createTrashRequest(
                 context.contentResolver,
                 pendingTrash.toList(),
-                /* isTrashed = */ true
+                true
             )
             onNeedsUserConfirm(pi.intentSender)
         } else {
-            // Compat < 30 → borrar directamente
             confirmTrashCompat(context, onNeedsUserConfirm)
         }
     }
 
-    /**
-     * Compat para API < 30: borra directamente sin diálogo.
-     */
     fun confirmTrashCompat(
         context: Context,
         @Suppress("UNUSED_PARAMETER") onNeedsUserConfirm: (IntentSender) -> Unit
@@ -569,7 +546,6 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
     // ---------------------------
     private fun hasGalleryPermissions(ctx: Context): Boolean {
         return if (Build.VERSION.SDK_INT >= 33) {
-            // Con que tenga uno de los dos nos vale según filtro; OR mantiene tu lógica actual
             ContextCompat.checkSelfPermission(ctx, Manifest.permission.READ_MEDIA_IMAGES) ==
                     PackageManager.PERMISSION_GRANTED ||
                     ContextCompat.checkSelfPermission(ctx, Manifest.permission.READ_MEDIA_VIDEO) ==
