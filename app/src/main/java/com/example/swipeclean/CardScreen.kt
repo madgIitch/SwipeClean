@@ -19,6 +19,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -28,6 +29,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.swipeclean.ui.components.*
 import com.example.swipeclean.zen.ZenViewModel
 import com.madglitch.swipeclean.GalleryViewModel
+import kotlinx.coroutines.delay
 
 private const val TAG_UI = "SwipeClean/UI"
 
@@ -40,6 +42,7 @@ fun CardScreen(vm: GalleryViewModel) {
     // Obtener ZenViewModel
     val zenViewModel: ZenViewModel = viewModel()
     val zenMode by zenViewModel.zenMode.collectAsState()
+    var showZenMessage by rememberSaveable { mutableStateOf(false) }
 
     val items by vm.items.collectAsState()
     val index by vm.index.collectAsState()
@@ -53,7 +56,13 @@ fun CardScreen(vm: GalleryViewModel) {
     LaunchedEffect(index)      { Log.d(TAG_UI, "index=$index (items.size=${items.size})") }
     LaunchedEffect(filter)     { Log.d(TAG_UI, "filter=$filter") }
     LaunchedEffect(zenMode.isEnabled) {
-        Log.d(TAG_UI, "ZenMode state changed: isEnabled=${zenMode.isEnabled}")
+        if (zenMode.isEnabled) {
+            showZenMessage = true
+            delay(5000)
+            showZenMessage = false
+        } else {
+            showZenMessage = false
+        }
     }
 
     // Compartir elemento actual (ACTION_SEND)
@@ -249,6 +258,7 @@ fun CardScreen(vm: GalleryViewModel) {
                                     // Overlay de ZenMode
                                     ZenModeOverlay(
                                         zenMode = zenMode,
+                                        showMessage = showZenMessage,  // ← Pasar como parámetro
                                         onDismiss = {
                                             Log.d(TAG_UI, "ZenMode dismissed")
                                             zenViewModel.toggleZenMode(false)
@@ -265,18 +275,10 @@ fun CardScreen(vm: GalleryViewModel) {
                 }
             }
 
-            // ZenMode Overlay - se renderiza encima de todo
-            ZenModeOverlay(
-                zenMode = zenMode,
-                onDismiss = {
-                    Log.d(TAG_UI, "ZenMode dismissed")
-                    zenViewModel.toggleZenMode(false)
-                }
-            )
+
         }
     }
 }
-
 
 // Helpers
 private fun extractIdFromUri(uri: Uri): Long =

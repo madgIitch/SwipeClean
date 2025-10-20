@@ -9,6 +9,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -43,10 +44,10 @@ private val zenMessages = listOf(
     "Libera espacio, libera mente."
 )
 
-
 @Composable
 fun ZenModeOverlay(
     zenMode: ZenMode,
+    showMessage: Boolean,  // ← Recibir como parámetro en lugar de estado interno
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -58,36 +59,25 @@ fun ZenModeOverlay(
         Box(
             modifier = modifier.fillMaxSize()
         ) {
-            // Fondo con gradiente muy sutil y semi-transparente
+            // Fondo semi-transparente
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(
                         Brush.verticalGradient(
                             colors = listOf(
-                                ZenPurple.copy(alpha = 0.15f),  // ← MUY transparente
+                                ZenPurple.copy(alpha = 0.15f),
                                 ZenGray.copy(alpha = 0.10f)
                             )
                         )
                     )
             )
 
-            // Mensaje motivacional SOLO al inicio
-            var showInitialMessage by remember { mutableStateOf(true) }
-
-            LaunchedEffect(zenMode.isEnabled) {
-                if (zenMode.isEnabled) {
-                    showInitialMessage = true
-                    delay(5000) // Mostrar por 5 segundos
-                    showInitialMessage = false
-                }
-            }
-
-            // Mensaje inicial
+            // Mensaje motivacional controlado desde CardScreen
             AnimatedVisibility(
-                visible = showInitialMessage,
-                enter = fadeIn(tween(800)) + scaleIn(initialScale = 0.9f),
-                exit = fadeOut(tween(600)),
+                visible = showMessage,
+                enter = fadeIn(animationSpec = tween(400)),
+                exit = fadeOut(animationSpec = tween(400)),
                 modifier = Modifier.align(Alignment.Center)
             ) {
                 Column(
@@ -96,43 +86,39 @@ fun ZenModeOverlay(
                     modifier = Modifier.padding(32.dp)
                 ) {
                     Text(
-                        text = "Modo Zen",
+                        text = "Respira",
                         style = MaterialTheme.typography.headlineLarge,
                         color = ZenLavender,
-                        fontWeight = FontWeight.Light,
-                        letterSpacing = 4.sp
+                        fontWeight = FontWeight.Light
                     )
-
                     Text(
-                        text = zenMessages.random(),
+                        text = "Observa cada imagen con calma",
                         style = MaterialTheme.typography.bodyLarge,
                         color = ZenSand,
-                        textAlign = TextAlign.Center,
                         fontWeight = FontWeight.Light,
-                        letterSpacing = 1.sp
+                        textAlign = TextAlign.Center
                     )
                 }
             }
 
-            // Botón de salida (siempre visible, esquina superior)
-            Button(
+            // Botón de salida siempre visible
+            OutlinedButton(
                 onClick = onDismiss,
-                colors = ButtonDefaults.buttonColors(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(16.dp),
+                colors = ButtonDefaults.outlinedButtonColors(
                     containerColor = Color.Transparent,
                     contentColor = ZenLavender
                 ),
-                border = BorderStroke(1.dp, ZenLavender.copy(alpha = 0.3f)),
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(16.dp)
+                border = BorderStroke(1.dp, ZenLavender.copy(alpha = 0.5f))
             ) {
                 Text(
-                    "Salir",
-                    letterSpacing = 2.sp,
+                    text = "Salir del Zen Mode",
+                    style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Light
                 )
             }
         }
     }
 }
-
