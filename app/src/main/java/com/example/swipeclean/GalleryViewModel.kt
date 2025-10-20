@@ -20,6 +20,8 @@ import androidx.datastore.preferences.preferencesDataStore
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.swipeclean.MediaItem
+import com.example.swipeclean.StorageAnalyzer
+import com.example.swipeclean.StorageMetrics
 import com.tuempresa.swipeclean.MediaFilter
 import com.tuempresa.swipeclean.loadMedia
 import kotlinx.coroutines.Dispatchers
@@ -128,6 +130,12 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
     private val _totalDeletedCount = MutableStateFlow(0)
     val totalDeletedCount: StateFlow<Int> = _totalDeletedCount
 
+    private val _storageMetrics = MutableStateFlow<StorageMetrics?>(null)
+    val storageMetrics: StateFlow<StorageMetrics?> = _storageMetrics
+
+    private val _cleaningProgress = MutableStateFlow(0f) // 0.0 a 1.0
+    val cleaningProgress: StateFlow<Float> = _cleaningProgress
+
     // ---------------------------
     // Init: restaurar estado
     // ---------------------------
@@ -168,6 +176,11 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
 
             // ✅ AÑADIR AQUÍ: Restaurar estado del tutorial
             _tutorialCompleted.value = prefs[KEY_TUTORIAL_COMPLETED] ?: false
+
+            viewModelScope.launch {
+                _storageMetrics.value = StorageAnalyzer.calculateCleaningTarget(appCtx)
+            }
+
 
             val savedIdStr = prefs[keyIdFor(currentFilter)]
             val savedUriForFilter = prefs[keyUriFor(currentFilter)]
@@ -453,11 +466,27 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
             val n = _items.value.size
             _index.value = if (n == 0) 0 else ((_index.value % n) + n) % n
 
-            persistStatsAsync(deletedBytes, confirmed.size) // NUEVO
+            persistStatsAsync(deletedBytes, confirmed.size)
             persistAsync()
+
+            // ✅ AÑADIR AQUÍ: Actualizar progreso
+            updateCleaningProgress()
         }
     }
-
+    private suspend fun calculateDeletedBytes(context: Context, uris: List<Uri>): Long = withContext(Dispatchers.IO) {
+        var total = 0L
+        uris.forEach { uri ->
+            context.contentResolver.query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
+                    if (sizeIndex >= 0) {
+                        total += cursor.getLong(sizeIndex)
+                    }
+                }
+            }
+        }
+        total
+    }
     fun clearStage() = stagedForReview.clear()
 
     private fun persistStatsAsync(bytesDeleted: Long, countDeleted: Int) = viewModelScope.launch(Dispatchers.IO) {
@@ -471,6 +500,18 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // ✅ AÑADIR AQUÍ: Método para actualizar progreso
+    fun updateCleaningProgress() {
+        val metrics = _storageMetrics.value ?: return
+        val deletedBytes = _totalDeletedBytes.value
+        val targetBytes = metrics.targetBytes
+
+        _cleaningProgress.value = if (targetBytes > 0) {
+            (deletedBytes.toFloat() / targetBytes.toFloat()).coerceIn(0f, 1f)
+        } else {
+            0f
+        }
+    }
     /**
      * Android 11+ (API 30): manda a Papelera con diálogo del sistema.
      * No vacía la cola: espera a que la actividad informe del resultado.

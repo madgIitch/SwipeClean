@@ -35,6 +35,7 @@ class StatsActivity : ComponentActivity() {
         val totalBytes = intent.getLongExtra("total_bytes", 0L)
         val totalCount = intent.getIntExtra("total_count", 0)
 
+
         setContent {
             SwipeCleanTheme {
                 StatsScreen(
