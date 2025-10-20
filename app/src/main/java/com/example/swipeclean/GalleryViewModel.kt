@@ -53,7 +53,7 @@ private val KEY_LAST_FILTER = stringPreferencesKey("last_filter")
 // Claves de estadísticas y progreso
 private val KEY_TOTAL_DELETED_BYTES = stringPreferencesKey("total_deleted_bytes")
 private val KEY_TOTAL_DELETED_COUNT = intPreferencesKey("total_deleted_count")
-private val KEY_SESSION_STATS = stringPreferencesKey("session_stats")
+private val KEY_SESSION_STATS = stringPreferencesKey("session_stats") // reservado para futuras sesiones
 private val KEY_TUTORIAL_COMPLETED = booleanPreferencesKey("tutorial_completed")
 
 private data class UserState(
@@ -84,8 +84,16 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
     // ---------------------------
 
     // Tutorial
-    private val _tutorialCompleted = MutableStateFlow(false)
+    private val _tutorialCompleted = MutableStateFlow(
+        runBlocking(Dispatchers.IO) {
+            getApplication<Application>().userDataStore.data.first()[KEY_TUTORIAL_COMPLETED] ?: false
+        }
+    )
     val tutorialCompleted: StateFlow<Boolean> = _tutorialCompleted
+    private val TAG_TUTORIAL = "SwipeClean/Tutorial"
+    private val _bootRestored = MutableStateFlow(false)
+    val bootRestored: StateFlow<Boolean> = _bootRestored
+
 
     // Items y navegación
     private val _items = MutableStateFlow<List<MediaItem>>(emptyList())
@@ -130,86 +138,160 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
     init {
         viewModelScope.launch {
             val appCtx = getApplication<Application>()
-            val legacy = readUserState(appCtx)
 
-            // Último filtro usado (nuevo) con fallback a legacy
-            val lastFilterName = appCtx.userDataStore.data
-                .map { it[KEY_LAST_FILTER] ?: legacy.filter }
-                .first()
+            // ─────────────────────────────────────────────────────────────
+            // 1) Carga legacy + último filtro usado (en IO)
+            // ─────────────────────────────────────────────────────────────
+            val legacy = runCatching {
+                withContext(Dispatchers.IO) { readUserState(appCtx) }
+            }.onFailure {
+                android.util.Log.e("SwipeClean/VM", "readUserState() falló", it)
+            }.getOrElse { UserState() }
+
+            val lastFilterName = runCatching {
+                withContext(Dispatchers.IO) {
+                    appCtx.userDataStore.data
+                        .map { it[KEY_LAST_FILTER] ?: legacy.filter }
+                        .first()
+                }
+            }.onFailure {
+                android.util.Log.e("SwipeClean/VM", "Leyendo KEY_LAST_FILTER falló", it)
+            }.getOrElse { legacy.filter }
 
             currentFilter = when (lastFilterName) {
                 "IMAGES" -> MediaFilter.IMAGES
                 "VIDEOS" -> MediaFilter.VIDEOS
-                else -> MediaFilter.ALL
+                else     -> MediaFilter.ALL
             }
             _filter.value = currentFilter
+            android.util.Log.d("SwipeClean/VM", "init → lastFilter=$lastFilterName → currentFilter=$currentFilter")
 
+            // Restaurar cola pendiente (legacy)
             pendingTrash.clear()
             pendingTrash.addAll(legacy.pending.map(Uri::parse))
+            android.util.Log.d("SwipeClean/VM", "init → legacy.pending=${legacy.pending.size}")
 
+            // ─────────────────────────────────────────────────────────────
+            // 2) Permisos: si faltan, restaura índice legacy y sólo el flag de tutorial
+            // ─────────────────────────────────────────────────────────────
             if (!hasGalleryPermissions(appCtx)) {
                 _index.value = legacy.index
+                val dsTutorialNoPerm = runCatching {
+                    withContext(Dispatchers.IO) {
+                        appCtx.userDataStore.data.first()[KEY_TUTORIAL_COMPLETED] ?: false
+                    }
+                }.getOrElse { false }
+                _tutorialCompleted.value = dsTutorialNoPerm
+
+                android.util.Log.w("SwipeClean/VM", "init → SIN permisos. index(legacy)=${legacy.index}")
+                android.util.Log.d("SwipeClean/Tutorial", "init(no-perm) → tutorialCompleted(DataStore)=$dsTutorialNoPerm")
                 return@launch
             }
 
-            // Carga de elementos
-            loadInternal(currentFilter)
+            // ─────────────────────────────────────────────────────────────
+            // 3) Carga de elementos para el filtro actual (en IO)
+            // ─────────────────────────────────────────────────────────────
+            runCatching {
+                withContext(Dispatchers.IO) { loadInternal(currentFilter) }
+            }.onFailure {
+                android.util.Log.e("SwipeClean/MediaLoad", "loadInternal($currentFilter) falló", it)
+            }
+            android.util.Log.d("SwipeClean/VM", "init → items.size=${_items.value.size} para filter=$currentFilter")
 
-            // Restauración de estado persistente
-            val prefs = appCtx.userDataStore.data.first()
+            // ─────────────────────────────────────────────────────────────
+            // 4) Preferencias (stats, tutorial, claves por filtro)
+            // ─────────────────────────────────────────────────────────────
+            val prefs = runCatching {
+                withContext(Dispatchers.IO) { appCtx.userDataStore.data.first() }
+            }.onFailure {
+                android.util.Log.e("SwipeClean/VM", "DataStore.first() falló", it)
+            }.getOrNull()
 
-            // Restaurar estadísticas
-            _totalDeletedBytes.value = prefs[KEY_TOTAL_DELETED_BYTES]?.toLongOrNull() ?: 0L
-            _totalDeletedCount.value = prefs[KEY_TOTAL_DELETED_COUNT] ?: 0
+            // Stats
+            _totalDeletedBytes.value = prefs?.get(KEY_TOTAL_DELETED_BYTES)?.toLongOrNull() ?: 0L
+            _totalDeletedCount.value = prefs?.get(KEY_TOTAL_DELETED_COUNT) ?: 0
+            android.util.Log.d(
+                "SwipeClean/Stats",
+                "init → deletedBytes=${_totalDeletedBytes.value}, deletedCount=${_totalDeletedCount.value}"
+            )
 
-            // Restaurar estado del tutorial
-            _tutorialCompleted.value = prefs[KEY_TUTORIAL_COMPLETED] ?: false
+            // Tutorial (restaurar pronto para evitar relanzos)
+            val tutorialFromDs = prefs?.get(KEY_TUTORIAL_COMPLETED) ?: false
+            _tutorialCompleted.value = tutorialFromDs
+            android.util.Log.d("SwipeClean/Tutorial", "init → tutorialCompleted(DataStore)=$tutorialFromDs")
 
-            // Calcular métricas de almacenamiento
-            viewModelScope.launch {
-                _storageMetrics.value = StorageAnalyzer.calculateCleaningTarget(appCtx)
-                updateCleaningProgress()
+            // Métricas de almacenamiento (async en IO)
+            viewModelScope.launch(Dispatchers.IO) {
+                runCatching { StorageAnalyzer.calculateCleaningTarget(appCtx) }
+                    .onSuccess {
+                        _storageMetrics.value = it
+                        updateCleaningProgress()
+                        android.util.Log.d("SwipeClean/Stats", "init → storage targetBytes=${it.targetBytes}")
+                    }
+                    .onFailure { android.util.Log.e("SwipeClean/Stats", "calculateCleaningTarget() falló", it) }
             }
 
-            // Restauración por-filtro (ID → URI → índice)
-            val savedIdStr = prefs[keyIdFor(currentFilter)]
-            val savedUriForFilter = prefs[keyUriFor(currentFilter)]
-            val savedIndexForFilter = prefs[keyIndexFor(currentFilter)] ?: legacy.index
+            // ─────────────────────────────────────────────────────────────
+            // 5) Restauración por-filtro: ID → URI → índice seguro
+            // ─────────────────────────────────────────────────────────────
+            val savedIdStr          = prefs?.get(keyIdFor(currentFilter))
+            val savedUriForFilter   = prefs?.get(keyUriFor(currentFilter))
+            val savedIndexForFilter = prefs?.get(keyIndexFor(currentFilter)) ?: legacy.index
 
             val list = _items.value
 
-            val candidateById = savedIdStr?.toLongOrNull()?.let { id ->
-                list.indexOfFirst { it.id == id }
-            } ?: -1
+            val candidateById = savedIdStr?.toLongOrNull()
+                ?.let { id -> list.indexOfFirst { it.id == id } }
+                ?: -1
 
             val candidateByUri = if (candidateById < 0 && savedUriForFilter != null) {
                 list.indexOfFirst { it.uri.toString() == savedUriForFilter }
             } else -1
 
             val restored = when {
-                candidateById >= 0 -> candidateById
+                candidateById  >= 0 -> candidateById
                 candidateByUri >= 0 -> candidateByUri
-                list.isEmpty() -> 0
-                else -> savedIndexForFilter.coerceIn(0, list.lastIndex)
+                list.isEmpty()       -> 0
+                else                 -> savedIndexForFilter.coerceIn(0, list.lastIndex)
             }
 
             _index.value = restored
-            persistNow()
+            android.util.Log.d(
+                "SwipeClean/VM",
+                "init → restoredIndex=$restored (byId=$candidateById, byUri=$candidateByUri, savedIndex=$savedIndexForFilter, items=${list.size})"
+            )
+
+            // ─────────────────────────────────────────────────────────────
+            // 6) Checkpoint inmediato (persistir estado actual)
+            // ─────────────────────────────────────────────────────────────
+            runCatching { persistNow() }
+                .onFailure { android.util.Log.e("SwipeClean/VM", "persistNow() falló en init", it) }
+
+            // Diagnóstico: comparar DS vs StateFlow tras persistir
+            viewModelScope.launch(Dispatchers.IO) {
+                val ds = runCatching {
+                    appCtx.userDataStore.data.first()[KEY_TUTORIAL_COMPLETED] ?: false
+                }.getOrElse { false }
+                val sf = _tutorialCompleted.value
+                android.util.Log.d("SwipeClean/Tutorial", "init(post-persist) → DataStore=$ds, StateFlow=$sf")
+            }
         }
     }
-
     // ---------------------------
     // Tutorial
     // ---------------------------
     fun markTutorialCompleted() {
         viewModelScope.launch(Dispatchers.IO) {
             val appCtx = getApplication<Application>()
+            android.util.Log.d(TAG_TUTORIAL, "markTutorialCompleted() → writing true to DataStore…")
             appCtx.userDataStore.edit { p ->
                 p[KEY_TUTORIAL_COMPLETED] = true
             }
             _tutorialCompleted.value = true
+            android.util.Log.d(TAG_TUTORIAL, "markTutorialCompleted() → StateFlow=true (persisted)")
         }
     }
+
 
     // ---------------------------
     // API para la UI: cambiar filtro
@@ -224,8 +306,11 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
 
     fun jumpTo(targetIndex: Int) {
         val max = _items.value.lastIndex
-        _index.value = targetIndex.coerceIn(0, max.coerceAtLeast(0))
+        _index.value = targetIndex.coerceIn(0, max.coceateAtLeast0())
     }
+
+    // Helper para evitar warnings (inline)
+    private fun Int.coceateAtLeast0() = this.coerceAtLeast(0)
 
     // ---------------------------
     // Carga / Filtro
@@ -290,6 +375,7 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
                         }
                     }
                 } catch (_: Exception) {
+                    // ignorar errores por URIs no accesibles
                 }
             }
             total
@@ -334,13 +420,17 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
     // ---------------------------
     fun persistNow() {
         val appCtx = getApplication<Application>()
-        if (!hasGalleryPermissions(appCtx)) return
+        if (!hasGalleryPermissions(appCtx)) {
+            android.util.Log.w("SwipeClean/VM", "persistNow() → sin permisos, no se persiste")
+            return
+        }
 
         val safeIndex = if (_items.value.isEmpty()) 0
         else _index.value.coerceIn(0, _items.value.lastIndex)
 
         val currentUriStr = current()?.uri?.toString()
-        val currentIdStr = current()?.id?.toString()
+        val currentIdStr  = current()?.id?.toString()
+        val tutorialFlag  = _tutorialCompleted.value
 
         // Síncrono en IO para resistir cierre brusco
         runCatching {
@@ -348,54 +438,75 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
                 appCtx.userDataStore.edit { p ->
                     // Por filtro actual
                     p[keyIndexFor(currentFilter)] = safeIndex
-                    if (currentUriStr != null) p[keyUriFor(currentFilter)] = currentUriStr else p.remove(
-                        keyUriFor(currentFilter)
-                    )
-                    if (currentIdStr != null) p[keyIdFor(currentFilter)] = currentIdStr else p.remove(
-                        keyIdFor(currentFilter)
-                    )
+                    if (currentUriStr != null) p[keyUriFor(currentFilter)] = currentUriStr else p.remove(keyUriFor(currentFilter))
+                    if (currentIdStr  != null) p[keyIdFor(currentFilter)]  = currentIdStr  else p.remove(keyIdFor(currentFilter))
 
                     // Último filtro usado
                     p[KEY_LAST_FILTER] = currentFilter.name
 
                     // Legacy (retro-compat)
                     p[KEY_INDEX] = safeIndex
-                    if (currentUriStr != null) p[KEY_CURRENT_URI] = currentUriStr else p.remove(
-                        KEY_CURRENT_URI
-                    )
-                    p[KEY_FILTER] = currentFilter.name
+                    if (currentUriStr != null) p[KEY_CURRENT_URI] = currentUriStr else p.remove(KEY_CURRENT_URI)
+                    p[KEY_FILTER]  = currentFilter.name
                     p[KEY_PENDING] = pendingTrash.map(Uri::toString).toSet()
+
+                    // 👇 persistimos también el estado del tutorial
+                    p[KEY_TUTORIAL_COMPLETED] = tutorialFlag
                 }
             }
+        }.onSuccess {
+            android.util.Log.d(
+                "SwipeClean/VM",
+                "persistNow() ✓ filter=$currentFilter, index=$safeIndex, uri=${currentUriStr ?: "null"}, id=${currentIdStr ?: "null"}, tutorial=$tutorialFlag, pending=${pendingTrash.size}"
+            )
+        }.onFailure {
+            android.util.Log.e("SwipeClean/VM", "persistNow() ✗ error guardando DataStore", it)
         }
     }
 
     private fun persistAsync() = viewModelScope.launch(Dispatchers.IO) {
         val appCtx = getApplication<Application>()
-        if (!hasGalleryPermissions(appCtx)) return@launch
+        if (!hasGalleryPermissions(appCtx)) {
+            android.util.Log.w("SwipeClean/VM", "persistAsync() → sin permisos, no se persiste")
+            return@launch
+        }
 
         val safeIndex = if (_items.value.isEmpty()) 0
         else _index.value.coerceIn(0, _items.value.lastIndex)
 
         val currentUriStr = current()?.uri?.toString()
-        val currentIdStr = current()?.id?.toString()
+        val currentIdStr  = current()?.id?.toString()
+        val tutorialFlag  = _tutorialCompleted.value
 
-        appCtx.userDataStore.edit { p ->
-            // Por filtro actual
-            p[keyIndexFor(currentFilter)] = safeIndex
-            if (currentUriStr != null) p[keyUriFor(currentFilter)] = currentUriStr else p.remove(keyUriFor(currentFilter))
-            if (currentIdStr != null) p[keyIdFor(currentFilter)] = currentIdStr else p.remove(keyIdFor(currentFilter))
+        runCatching {
+            appCtx.userDataStore.edit { p ->
+                // Por filtro actual
+                p[keyIndexFor(currentFilter)] = safeIndex
+                if (currentUriStr != null) p[keyUriFor(currentFilter)] = currentUriStr else p.remove(keyUriFor(currentFilter))
+                if (currentIdStr  != null) p[keyIdFor(currentFilter)]  = currentIdStr  else p.remove(keyIdFor(currentFilter))
 
-            // Último filtro usado
-            p[KEY_LAST_FILTER] = currentFilter.name
+                // Último filtro usado
+                p[KEY_LAST_FILTER] = currentFilter.name
 
-            // Legacy (retro-compat)
-            p[KEY_INDEX] = safeIndex
-            if (currentUriStr != null) p[KEY_CURRENT_URI] = currentUriStr else p.remove(KEY_CURRENT_URI)
-            p[KEY_FILTER] = currentFilter.name
-            p[KEY_PENDING] = pendingTrash.map(Uri::toString).toSet()
+                // Legacy (retro-compat)
+                p[KEY_INDEX] = safeIndex
+                if (currentUriStr != null) p[KEY_CURRENT_URI] = currentUriStr else p.remove(KEY_CURRENT_URI)
+                p[KEY_FILTER]  = currentFilter.name
+                p[KEY_PENDING] = pendingTrash.map(Uri::toString).toSet()
+
+                // 👇 persistimos también el estado del tutorial
+                p[KEY_TUTORIAL_COMPLETED] = tutorialFlag
+            }
+        }.onSuccess {
+            android.util.Log.d(
+                "SwipeClean/VM",
+                "persistAsync() ✓ filter=$currentFilter, index=$safeIndex, uri=${currentUriStr ?: "null"}, id=${currentIdStr ?: "null"}, tutorial=$tutorialFlag, pending=${pendingTrash.size}"
+            )
+        }.onFailure {
+            android.util.Log.e("SwipeClean/VM", "persistAsync() ✗ error guardando DataStore", it)
         }
     }
+
 
     // ---------------------------
     // Progreso de limpieza
@@ -433,6 +544,7 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
     @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
     fun undo() {
         if (history.isEmpty()) return
+        // Retrocede visualmente primero
         prev()
 
         when (val last = history.removeLast()) {
@@ -506,7 +618,7 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
             val pi = MediaStore.createTrashRequest(
                 context.contentResolver,
                 pendingTrash.toList(),
-                true
+                /* isTrashed = */ true
             )
             onNeedsUserConfirm(pi.intentSender)
         } else {
