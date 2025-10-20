@@ -9,9 +9,12 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -163,44 +166,46 @@ fun CardScreen(vm: GalleryViewModel) {
             )
         },
         bottomBar = {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 32.dp, vertical = 32.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+            AnimatedVisibility(
+                visible = !zenMode.isEnabled,
+                enter = fadeIn() + slideInVertically(initialOffsetY = { it }),
+                exit = fadeOut() + slideOutVertically(targetOffsetY = { it })
             ) {
-                RoundActionIcon(
-                    icon = R.drawable.ic_delete,
-                    contentDesc = "Delete",
-                    onClick = {
-                        Log.d(TAG_UI, "BottomBar.delete → vm.markForTrash()")
-                        vm.markForTrash()
-                    },
-                    container = MaterialTheme.colorScheme.errorContainer,
-                    content = MaterialTheme.colorScheme.onErrorContainer,
-                    size = 80.dp
-                )
-                RoundActionIcon(
-                    icon = R.drawable.ic_share,
-                    contentDesc = "Share",
-                    onClick = {
-                        Log.d(TAG_UI, "BottomBar.share → shareCurrent()")
-                        shareCurrent()
-                    },
-                    size = 64.dp
-                )
-                RoundActionIcon(
-                    icon = R.drawable.ic_check,
-                    contentDesc = "Save",
-                    onClick = {
-                        Log.d(TAG_UI, "BottomBar.keep → vm.keep()")
-                        vm.keep()
-                    },
-                    container = MaterialTheme.colorScheme.primaryContainer,
-                    content = MaterialTheme.colorScheme.onPrimaryContainer,
-                    size = 80.dp
-                )
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 32.dp, vertical = 32.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RoundActionIcon(
+                        icon = R.drawable.ic_delete,
+                        contentDesc = "Delete",
+                        onClick = {
+                            Log.d(TAG_UI, "BottomBar.delete → vm.markForTrash()")
+                            vm.markForTrash()
+                        },
+                        size = 80.dp
+                    )
+                    RoundActionIcon(
+                        icon = R.drawable.ic_share,
+                        contentDesc = "Share",
+                        onClick = {
+                            Log.d(TAG_UI, "BottomBar.share → shareCurrent()")
+                            shareCurrent()
+                        },
+                        size = 64.dp
+                    )
+                    RoundActionIcon(
+                        icon = R.drawable.ic_check,
+                        contentDesc = "Save",
+                        onClick = {
+                            Log.d(TAG_UI, "BottomBar.keep → vm.keep()")
+                            vm.keep()
+                        },
+                        size = 80.dp
+                    )
+                }
             }
         }
     ) { padding ->
@@ -244,12 +249,15 @@ fun CardScreen(vm: GalleryViewModel) {
                                         shareCurrent()
                                     },
                                     onSwipeDown = {
-                                        Log.d(TAG_UI, "onSwipeDown → zenViewModel.toggleZenMode(true)")
-                                        zenViewModel.toggleZenMode(true)
+                                        // Toggle: si está activo, desactivar; si está inactivo, activar
+                                        val newState = !zenMode.isEnabled
+                                        Log.d(TAG_UI, "onSwipeDown → toggle ZenMode: ${zenMode.isEnabled} → $newState")
+                                        zenViewModel.toggleZenMode(newState)
                                     }
                                 ) {
                                     MediaCard(
                                         item = itemAt,
+                                        isZenMode = zenMode.isEnabled,
                                         onSwipeEnabledChange = { enabled ->
                                             Log.d(TAG_UI, "onSwipeEnabledChange($enabled)")
                                             swipeEnabled = enabled

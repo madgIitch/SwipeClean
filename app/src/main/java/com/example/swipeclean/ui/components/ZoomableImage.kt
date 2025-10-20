@@ -4,15 +4,18 @@ import android.util.Log
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.pointerInput
@@ -41,18 +44,19 @@ fun ZoomableImage(
     minScale: Float = 1f,
     maxScale: Float = 5f,
     onZoomingChange: (Boolean) -> Unit = {},
-    autoResetOnRelease: Boolean = true,    // 👈 NUEVO: vuelve siempre a 1x al soltar (por defecto)
-    snapEps: Float = 0.15f                 // si autoResetOnRelease=false, margen ±15% para volver a 1x
+    autoResetOnRelease: Boolean = true,
+    snapEps: Float = 0.15f,
+    isZenMode: Boolean = false  // ← NUEVO: para fondo transparente en ZenMode
 ) {
     key(item.uri) {
         val scope = rememberCoroutineScope()
 
-        // Animables “visibles”
+        // Animables "visibles"
         val scaleA = remember { Animatable(1f) }
         val offsetXA = remember { Animatable(0f) }
         val offsetYA = remember { Animatable(0f) }
 
-        // Estado “raw” durante el gesto (sin imán)
+        // Estado "raw" durante el gesto (sin imán)
         var scaleRaw by remember { mutableStateOf(1f) }
         var offsetRaw by remember { mutableStateOf(Offset.Zero) }
 
@@ -63,7 +67,7 @@ fun ZoomableImage(
 
         suspend fun animateTo(scale: Float, offset: Offset) {
             cancelRunning()
-            scope.launch { scaleA.animateTo(scale,  spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = 0.9f)) }
+            scope.launch { scaleA.animateTo(scale, spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = 0.9f)) }
             scope.launch { offsetXA.animateTo(offset.x, spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = 0.9f)) }
             scope.launch { offsetYA.animateTo(offset.y, spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = 0.9f)) }
         }
@@ -86,9 +90,13 @@ fun ZoomableImage(
 
         val ctx = LocalContext.current
 
+        // Fondo: transparente en ZenMode, surface en modo normal
+        val backgroundColor = if (isZenMode) Color.Transparent else MaterialTheme.colorScheme.surface
+
         Box(
             modifier = modifier
                 .fillMaxSize()
+                .background(backgroundColor)  // ← Fondo condicional
                 .clip(RoundedCornerShape(cornerRadius))
                 // 1) Pinch & pan fluido (sin imán durante el gesto)
                 .pointerInput(item.uri) {
@@ -97,7 +105,7 @@ fun ZoomableImage(
                         val scaleChange = if (scaleRaw == 0f) 1f else newScale / scaleRaw
                         scaleRaw = newScale
 
-                        // Pan con “foco” en el centroide al hacer zoom
+                        // Pan con "foco" en el centroide al hacer zoom
                         offsetRaw = if (scaleChange != 1f) {
                             Offset(
                                 (offsetRaw.x - centroid.x) * scaleChange + centroid.x + pan.x,

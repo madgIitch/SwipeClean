@@ -23,10 +23,10 @@ private fun isVideoItem(item: MediaItem): Boolean {
     val isVid = item.isVideo || item.mimeType.startsWith("video/") || (realMime?.startsWith("video/") == true)
     return isVid
 }
-
 @Composable
 fun MediaCard(
     item: MediaItem?,
+    isZenMode: Boolean = false,  // ← AÑADIR ESTE PARÁMETRO
     onSwipeEnabledChange: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier.fillMaxSize()
 ) {
@@ -42,7 +42,7 @@ fun MediaCard(
     if (isVideo) {
         Log.d(TAG_MEDIA, "Video mode → swipeEnabled=true")
         onSwipeEnabledChange(true)
-        VideoPlayer( // tu componente de vídeo
+        VideoPlayer(
             uri = item.uri,
             modifier = modifier,
             autoPlay = true,
@@ -55,6 +55,7 @@ fun MediaCard(
         ZoomableImage(
             item = item,
             modifier = modifier,
+            isZenMode = isZenMode,  // Ahora está disponible
             onZoomingChange = { zooming ->
                 Log.d(TAG_MEDIA, "onZoomingChange(zooming=$zooming) → swipeEnabled=${!zooming}")
                 onSwipeEnabledChange(!zooming)

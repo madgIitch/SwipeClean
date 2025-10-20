@@ -7,6 +7,7 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -47,19 +48,22 @@ private val zenMessages = listOf(
 @Composable
 fun ZenModeOverlay(
     zenMode: ZenMode,
-    showMessage: Boolean,  // ← Recibir como parámetro en lugar de estado interno
+    showMessage: Boolean,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // Seleccionar un mensaje aleatorio al activar ZenMode
+    val currentMessage by remember(zenMode.isEnabled) {
+        mutableStateOf(zenMessages.random())
+    }
+
     AnimatedVisibility(
         visible = zenMode.isEnabled,
         enter = fadeIn(animationSpec = tween(600)),
         exit = fadeOut(animationSpec = tween(400))
     ) {
-        Box(
-            modifier = modifier.fillMaxSize()
-        ) {
-            // Fondo semi-transparente
+        Box(modifier = modifier.fillMaxSize()) {
+            // Fondo semi-transparente del overlay
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -73,51 +77,27 @@ fun ZenModeOverlay(
                     )
             )
 
-            // Mensaje motivacional controlado desde CardScreen
+            // Mensaje motivacional usando la lista
             AnimatedVisibility(
                 visible = showMessage,
-                enter = fadeIn(animationSpec = tween(400)),
-                exit = fadeOut(animationSpec = tween(400)),
+                enter = fadeIn(animationSpec = tween(400)) + scaleIn(initialScale = 0.8f),
+                exit = fadeOut(animationSpec = tween(400)) + scaleOut(targetScale = 0.8f),
                 modifier = Modifier.align(Alignment.Center)
             ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                    modifier = Modifier.padding(32.dp)
-                ) {
-                    Text(
-                        text = "Respira",
-                        style = MaterialTheme.typography.headlineLarge,
-                        color = ZenLavender,
-                        fontWeight = FontWeight.Light
-                    )
-                    Text(
-                        text = "Observa cada imagen con calma",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = ZenSand,
-                        fontWeight = FontWeight.Light,
-                        textAlign = TextAlign.Center
-                    )
-                }
-            }
 
-            // Botón de salida siempre visible
-            OutlinedButton(
-                onClick = onDismiss,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(16.dp),
-                colors = ButtonDefaults.outlinedButtonColors(
-                    containerColor = Color.Transparent,
-                    contentColor = ZenLavender
-                ),
-                border = BorderStroke(1.dp, ZenLavender.copy(alpha = 0.5f))
-            ) {
-                Text(
-                    text = "Salir del Zen Mode",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Light
-                )
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                        modifier = Modifier.padding(32.dp)
+                    ) {
+                        Text(
+                            text = currentMessage,  // ← USAR EL MENSAJE DE LA LISTA
+                            style = MaterialTheme.typography.headlineMedium,
+                            color = Color.White,
+                            fontWeight = FontWeight.Light,
+                            textAlign = TextAlign.Center
+                        )
+                    }
             }
         }
     }
