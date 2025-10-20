@@ -81,6 +81,7 @@
                                               <map>
                                                 <entry key="color" value="000000" />
                                                 <entry key="imagePath" value="C:\Users\peorr\Downloads\ic_launcher.png" />
+                                                <entry key="scalingPercent" value="110" />
                                               </map>
                                             </option>
                                           </PersistentState>
