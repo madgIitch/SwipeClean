@@ -28,9 +28,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.swipeclean.ui.components.*
 import com.example.swipeclean.zen.ZenViewModel
+import com.example.swipeclean.zen.rememberZenAudioPlayer
 import com.madglitch.swipeclean.GalleryViewModel
 import kotlinx.coroutines.delay
 
@@ -46,6 +48,13 @@ fun CardScreen(vm: GalleryViewModel) {
     val zenViewModel: ZenViewModel = viewModel()
     val zenMode by zenViewModel.zenMode.collectAsState()
     var showZenMessage by rememberSaveable { mutableStateOf(false) }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+
+    val zenPlayer = rememberZenAudioPlayer(
+        track = zenMode.audioTrack,
+        volume = zenMode.volume,
+        lifecycle = lifecycle
+    )
 
     val items by vm.items.collectAsState()
     val index by vm.index.collectAsState()
@@ -66,6 +75,15 @@ fun CardScreen(vm: GalleryViewModel) {
         } else {
             showZenMessage = false
         }
+    }
+    LaunchedEffect(zenPlayer, zenMode.audioTrack) {
+        Log.d(TAG_UI, "ZenPlayer created: ${zenPlayer != null}, track=${zenMode.audioTrack.displayName}, volume=${zenMode.volume}")
+    }
+    LaunchedEffect(zenMode.isEnabled) {
+        Log.d(TAG_UI, "ZenMode.isEnabled = ${zenMode.isEnabled}")
+    }
+    LaunchedEffect(zenMode.audioTrack) {
+        Log.d(TAG_UI, "Current audioTrack = ${zenMode.audioTrack.displayName}")
     }
 
     // Compartir elemento actual (ACTION_SEND)

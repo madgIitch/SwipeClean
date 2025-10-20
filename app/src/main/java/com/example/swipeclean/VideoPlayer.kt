@@ -175,41 +175,20 @@ fun VideoPlayer(
     // ─────────────────────────────────────────────────────────────────────────
 
     DisposableEffect(lifecycleOwner, exoPlayer) {
-        val observer = LifecycleEventObserver { _, event ->
-            when (event) {
-                Lifecycle.Event.ON_RESUME -> {
-                    // Verificar que el player no esté liberado antes de reproducir
-                    if (autoPlay && exoPlayer.playbackState != Player.STATE_IDLE) {
-                        try {
-                            exoPlayer.play()
-                            Log.d(TAG, "Lifecycle: ON_RESUME → play()")
-                        } catch (e: IllegalStateException) {
-                            Log.e(TAG, "Cannot play - player may be released", e)
-                        }
-                    }
-                }
-
-                Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> {
-                    try {
-                        exoPlayer.pause()
-                        Log.d(TAG, "Lifecycle: ${event.name} → pause()")
-                    } catch (e: IllegalStateException) {
-                        Log.e(TAG, "Cannot pause - player may be released", e)
-                    }
-                }
-
+        val obs = LifecycleEventObserver { _, e ->
+            when (e) {
+                Lifecycle.Event.ON_RESUME -> if (autoPlay) exoPlayer.play()
+                Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> exoPlayer.pause()
                 else -> Unit
             }
         }
-
-        lifecycleOwner.lifecycle.addObserver(observer)
-
+        lifecycleOwner.lifecycle.addObserver(obs)
         onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-
-            // Liberar el player de forma segura
+            lifecycleOwner.lifecycle.removeObserver(obs)
+            // Pausar antes de liberar para evitar timeout
+            exoPlayer.pause()
+            exoPlayer.stop()
             try {
-                exoPlayer.stop()
                 exoPlayer.release()
                 Log.d(TAG, "Player released successfully")
             } catch (e: Exception) {
@@ -217,7 +196,6 @@ fun VideoPlayer(
             }
         }
     }
-
     // ─────────────────────────────────────────────────────────────────────────
     // PlayerView UI
     // ─────────────────────────────────────────────────────────────────────────

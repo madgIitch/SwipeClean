@@ -15,7 +15,9 @@ private val KEY_ZEN_ENABLED = booleanPreferencesKey("zen_enabled")
 class ZenViewModel(app: Application) : AndroidViewModel(app) {
 
     private val dataStore = (app as SwipeCleanApp).userDataStore
-
+    private val KEY_ZEN_TRACK = stringPreferencesKey("zen_track")
+    private val KEY_ZEN_VOLUME = floatPreferencesKey("zen_volume")
+    private val KEY_ZEN_HAPTICS = stringPreferencesKey("zen_haptics")
     private val _zenMode = MutableStateFlow(ZenMode())
     val zenMode: StateFlow<ZenMode> = _zenMode
 
@@ -23,9 +25,34 @@ class ZenViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             dataStore.data.collect { prefs ->
                 _zenMode.value = ZenMode(
-                    isEnabled = prefs[KEY_ZEN_ENABLED] ?: false
+                    isEnabled = prefs[KEY_ZEN_ENABLED] ?: false,
+                    audioTrack = ZenAudioTrack.valueOf(
+                        prefs[KEY_ZEN_TRACK] ?: "RAIN"
+                    ),
+                    volume = prefs[KEY_ZEN_VOLUME] ?: 0.5f,
+                    hapticsIntensity = HapticsIntensity.valueOf(
+                        prefs[KEY_ZEN_HAPTICS] ?: "MEDIUM"
+                    )
                 )
             }
+        }
+    }
+
+    fun setAudioTrack(track: ZenAudioTrack) {
+        viewModelScope.launch {
+            dataStore.edit { it[KEY_ZEN_TRACK] = track.name }
+        }
+    }
+
+    fun setVolume(volume: Float) {
+        viewModelScope.launch {
+            dataStore.edit { it[KEY_ZEN_VOLUME] = volume }
+        }
+    }
+
+    fun setHapticsIntensity(intensity: HapticsIntensity) {
+        viewModelScope.launch {
+            dataStore.edit { it[KEY_ZEN_HAPTICS] = intensity.name }
         }
     }
 
