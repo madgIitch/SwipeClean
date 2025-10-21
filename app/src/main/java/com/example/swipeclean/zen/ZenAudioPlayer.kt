@@ -1,24 +1,22 @@
 package com.example.swipeclean.zen
 
-import android.content.Context
-import android.os.Build
+import android.util.Log
 import androidx.annotation.OptIn
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
-import android.util.Log
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.RawResourceDataSource
 import androidx.media3.exoplayer.ExoPlayer
-import com.example.swipeclean.R
 import kotlinx.coroutines.delay
+
+private const val TAG = "SwipeClean/ZenAudio"
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -27,21 +25,43 @@ fun rememberZenAudioPlayer(
     volume: Float,
     lifecycle: Lifecycle
 ): ExoPlayer? {
-    val TAG = "SwipeClean/ZenAudio"  // ← Añadir constante de tag
     val context = LocalContext.current
 
+    // Variable para mantener referencia al player actual
+    var currentPlayer by remember { mutableStateOf<ExoPlayer?>(null) }
+
+    // Si el track es NONE, liberar player y retornar null
     if (track == ZenAudioTrack.NONE) {
-        Log.d(TAG, "Track is NONE, returning null player")  // ← Log 1
+        LaunchedEffect(Unit) {
+            currentPlayer?.let { oldPlayer ->
+                Log.d(TAG, "Track is NONE, releasing current player")
+                oldPlayer.pause()
+                oldPlayer.stop()
+                oldPlayer.release()
+                currentPlayer = null
+            }
+        }
+        Log.d(TAG, "Track is NONE, returning null player")
         return null
     }
 
+    // Crear nuevo player cuando cambia el track
     val player = remember(track) {
-        Log.d(TAG, "Creating player for track: ${track.displayName} (rawResId=${track.rawResId})")  // ← Log 2
+        // CRÍTICO: Liberar el player anterior ANTES de crear el nuevo
+        currentPlayer?.let { oldPlayer ->
+            Log.d(TAG, "Releasing previous player before creating new one")
+            oldPlayer.pause()
+            oldPlayer.stop()
+            oldPlayer.release()
+        }
+
+        Log.d(TAG, "Creating player for track: ${track.displayName} (rawResId=${track.rawResId})")
 
         ExoPlayer.Builder(context)
-            .build().apply {
+            .build()
+            .apply {
                 val uri = RawResourceDataSource.buildRawResourceUri(track.rawResId)
-                Log.d(TAG, "Built URI: $uri")  // ← Log 3
+                Log.d(TAG, "Built URI: $uri")
 
                 setMediaItem(MediaItem.fromUri(uri))
                 repeatMode = Player.REPEAT_MODE_ONE
@@ -53,41 +73,53 @@ fun rememberZenAudioPlayer(
                         .build(),
                     true
                 )
+
                 prepare()
-                Log.d(TAG, "Player prepared for track: ${track.displayName}")  // ← Log 4
+                Log.d(TAG, "Player prepared for track: ${track.displayName}")
+
+                // Guardar referencia al nuevo player
+                currentPlayer = this
             }
     }
 
-    // Fade in/out de volumen
-    LaunchedEffect(volume) {
-        Log.d(TAG, "Volume changed to: $volume, applying fade")  // ← Log 5
-        player?.fadeTo(volume.coerceIn(0f, 1f))
+    // ← NUEVO: Reproducir automáticamente cuando se crea un nuevo player
+    LaunchedEffect(player) {
+        if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+            Log.d(TAG, "New player created while RESUMED, starting playback")
+            player.play()
+        }
     }
 
+    // Aplicar fade de volumen cuando cambia
+    LaunchedEffect(volume) {
+        Log.d(TAG, "Volume changed to: $volume, applying fade")
+        player.fadeTo(volume.coerceIn(0f, 1f))
+    }
+
+    // Gestión del lifecycle (play/pause según estado de la app)
     DisposableEffect(lifecycle) {
-        val obs = LifecycleEventObserver { _, event ->
+        val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_RESUME -> {
-                    Log.d(TAG, "ON_RESUME → calling play()")  // ← Log 6
-                    player?.play()
+                    Log.d(TAG, "ON_RESUME → calling play()")
+                    player.play()
                 }
                 Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> {
-                    Log.d(TAG, "ON_PAUSE/STOP → calling pause()")  // ← Log 7
-                    player?.pause()
+                    Log.d(TAG, "ON_PAUSE/STOP → calling pause()")
+                    player.pause()
                 }
                 else -> Unit
             }
         }
-        lifecycle.addObserver(obs)
+        lifecycle.addObserver(observer)
 
         onDispose {
-            Log.d(TAG, "Disposing player for track: ${track.displayName}")  // ← Log 8
-            lifecycle.removeObserver(obs)
-            player?.release()
+            Log.d(TAG, "Lifecycle disposed, removing observer")
+            lifecycle.removeObserver(observer)
         }
     }
 
-    // ← Log 9: Añadir listener de estado del player
+    // Listener para monitorear estado del player
     DisposableEffect(player) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
@@ -102,17 +134,28 @@ fun rememberZenAudioPlayer(
             }
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
-                Log.d(TAG, "isPlaying=$isPlaying, track=${track.displayName}, volume=${player?.volume}")
+                Log.d(TAG, "isPlaying=$isPlaying, track=${track.displayName}, volume=${player.volume}")
             }
 
             override fun onPlayerError(error: PlaybackException) {
                 Log.e(TAG, "Player error for track ${track.displayName}: ${error.errorCodeName} - ${error.message}", error)
             }
         }
-        player?.addListener(listener)
+        player.addListener(listener)
 
         onDispose {
-            player?.removeListener(listener)
+            player.removeListener(listener)
+        }
+    }
+
+    // Limpieza final cuando el composable se desmonta completamente
+    DisposableEffect(Unit) {
+        onDispose {
+            Log.d(TAG, "Final cleanup, releasing player for track: ${track.displayName}")
+            player.pause()
+            player.stop()
+            player.release()
+            currentPlayer = null
         }
     }
 

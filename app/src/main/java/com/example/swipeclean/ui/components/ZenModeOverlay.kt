@@ -148,16 +148,7 @@ fun ZenModeOverlay(
 
             IconButton(
                 onClick = {
-                    // Ciclar entre tracks o mostrar menú
-                    val nextTrack = when(zenMode.audioTrack) {
-                        ZenAudioTrack.RAIN -> ZenAudioTrack.OCEAN
-                        ZenAudioTrack.OCEAN -> ZenAudioTrack.FOREST
-                        ZenAudioTrack.FOREST -> ZenAudioTrack.BINAURAL_432
-                        ZenAudioTrack.BINAURAL_432 -> ZenAudioTrack.BINAURAL_528
-                        ZenAudioTrack.BINAURAL_528 -> ZenAudioTrack.NONE
-                        ZenAudioTrack.NONE -> ZenAudioTrack.RAIN
-                    }
-                    onAudioTrackChange(nextTrack)
+                    onAudioTrackChange(zenMode.audioTrack.next())
                 },
                 modifier = Modifier
                     .align(Alignment.BottomEnd)

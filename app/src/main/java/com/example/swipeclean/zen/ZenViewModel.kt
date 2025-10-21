@@ -29,7 +29,7 @@ class ZenViewModel(app: Application) : AndroidViewModel(app) {
                     audioTrack = ZenAudioTrack.valueOf(
                         prefs[KEY_ZEN_TRACK] ?: "RAIN"
                     ),
-                    volume = prefs[KEY_ZEN_VOLUME] ?: 0.5f,
+                    volume = prefs[KEY_ZEN_VOLUME] ?: 1f,
                     hapticsIntensity = HapticsIntensity.valueOf(
                         prefs[KEY_ZEN_HAPTICS] ?: "MEDIUM"
                     )

@@ -30,7 +30,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.media3.exoplayer.ExoPlayer
 import com.example.swipeclean.ui.components.*
+import com.example.swipeclean.zen.ZenAudioTrack
 import com.example.swipeclean.zen.ZenViewModel
 import com.example.swipeclean.zen.rememberZenAudioPlayer
 import com.madglitch.swipeclean.GalleryViewModel
@@ -72,11 +74,15 @@ fun CardScreen(vm: GalleryViewModel) {
         } ?: false
     }
 
-    val zenPlayer = rememberZenAudioPlayer(
-        track = zenMode.audioTrack,
-        volume = if (isCurrentItemVideo && zenMode.isEnabled) 0f else zenMode.volume,
-        lifecycle = lifecycle
-    )
+    val zenPlayer = if (zenMode.isEnabled && zenMode.audioTrack != ZenAudioTrack.NONE) {
+        rememberZenAudioPlayer(
+            track = zenMode.audioTrack,
+            volume = if (isCurrentItemVideo && zenMode.isEnabled) 0f else zenMode.volume,
+            lifecycle = lifecycle
+        )
+    } else {
+        null
+    }
     LaunchedEffect(items.size) { Log.d(TAG_UI, "items.size=${items.size}") }
     LaunchedEffect(index)      { Log.d(TAG_UI, "index=$index (items.size=${items.size})") }
     LaunchedEffect(filter)     { Log.d(TAG_UI, "filter=$filter") }
@@ -97,6 +103,10 @@ fun CardScreen(vm: GalleryViewModel) {
     }
     LaunchedEffect(zenMode.audioTrack) {
         Log.d(TAG_UI, "Current audioTrack = ${zenMode.audioTrack.displayName}")
+    }
+    // Agregar log para debugging
+    LaunchedEffect(zenMode.isEnabled, zenPlayer) {
+        Log.d(TAG_UI, "Zen Mode enabled: ${zenMode.isEnabled}, Player created: ${zenPlayer != null}")
     }
 
     // Compartir elemento actual (ACTION_SEND)
@@ -293,23 +303,24 @@ fun CardScreen(vm: GalleryViewModel) {
                                         }
                                     )
                                     // Overlay de ZenMode
-                                    ZenModeOverlay(
-                                        zenMode = zenMode,
-                                        showMessage = showZenMessage,  // ← Pasar como parámetro
-                                        onDismiss = {
-                                            Log.d(TAG_UI, "ZenMode dismissed")
-                                            zenViewModel.toggleZenMode(false)
-                                        },
-                                        onAudioTrackChange = { track ->  // ← Agregar este parámetro
-                                            Log.d(TAG_UI, "Audio track changed to: ${track.displayName}")
-                                            zenViewModel.setAudioTrack(track)
-                                        },
-                                        onHapticsIntensityChange = { intensity ->  // ← Nuevo
-                                            Log.d(TAG_UI, "Haptics intensity changed to: $intensity")
-                                            zenViewModel.setHapticsIntensity(intensity)
-                                        }
-                                    )
+
                                 }
+                                ZenModeOverlay(
+                                    zenMode = zenMode,
+                                    showMessage = showZenMessage,
+                                    onDismiss = {
+                                        Log.d(TAG_UI, "ZenMode dismissed")
+                                        zenViewModel.toggleZenMode(false)
+                                    },
+                                    onAudioTrackChange = { track ->
+                                        Log.d(TAG_UI, "Audio track changed to: ${track.displayName}")
+                                        zenViewModel.setAudioTrack(track)
+                                    } ,
+                                    onHapticsIntensityChange = { intensity ->  // ← Nuevo
+                                        Log.d(TAG_UI, "Haptics intensity changed to: $intensity")
+                                        zenViewModel.setHapticsIntensity(intensity)
+                                    }
+                                )
                             } else {
                                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                     Text("Cargando…")
