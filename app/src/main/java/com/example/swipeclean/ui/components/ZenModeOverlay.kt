@@ -8,6 +8,11 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.VolumeOff
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -24,6 +29,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.swipeclean.R
+import com.example.swipeclean.zen.ZenAudioTrack
 import com.example.swipeclean.zen.ZenMode
 import kotlinx.coroutines.delay
 
@@ -50,6 +56,7 @@ fun ZenModeOverlay(
     zenMode: ZenMode,
     showMessage: Boolean,
     onDismiss: () -> Unit,
+    onAudioTrackChange: (ZenAudioTrack) -> Unit,
     modifier: Modifier = Modifier
 ) {
     // Seleccionar un mensaje aleatorio al activar ZenMode
@@ -77,6 +84,8 @@ fun ZenModeOverlay(
                     )
             )
 
+
+
             // Mensaje motivacional usando la lista
             AnimatedVisibility(
                 visible = showMessage,
@@ -98,6 +107,33 @@ fun ZenModeOverlay(
                             textAlign = TextAlign.Center
                         )
                     }
+            }
+
+            IconButton(
+                onClick = {
+                    // Ciclar entre tracks o mostrar menú
+                    val nextTrack = when(zenMode.audioTrack) {
+                        ZenAudioTrack.RAIN -> ZenAudioTrack.OCEAN
+                        ZenAudioTrack.OCEAN -> ZenAudioTrack.FOREST
+                        ZenAudioTrack.FOREST -> ZenAudioTrack.BINAURAL_432
+                        ZenAudioTrack.BINAURAL_432 -> ZenAudioTrack.BINAURAL_528
+                        ZenAudioTrack.BINAURAL_528 -> ZenAudioTrack.NONE
+                        ZenAudioTrack.NONE -> ZenAudioTrack.RAIN
+                    }
+                    onAudioTrackChange(nextTrack)
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(16.dp)
+            ) {
+                Icon(
+                    imageVector = if (zenMode.audioTrack == ZenAudioTrack.NONE)
+                        Icons.AutoMirrored.Filled.VolumeOff  // ← Cambiar aquí
+                    else
+                        Icons.AutoMirrored.Filled.VolumeUp,  // ← Y aquí
+                    contentDescription = "Cambiar audio",
+                    tint = Color.White
+                )
             }
         }
     }

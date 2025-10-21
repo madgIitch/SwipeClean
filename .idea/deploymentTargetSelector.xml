@@ -4,7 +4,7 @@
     <selectionStates>
       <SelectionState runConfigName="SwipeClean">
         <option name="selectionMode" value="DROPDOWN" />
-        <DropdownSelection timestamp="2025-10-17T22:22:50.212807800Z">
+        <DropdownSelection timestamp="2025-10-21T16:42:53.396286300Z">
           <Target type="DEFAULT_BOOT">
             <handle>
               <DeviceId pluginId="LocalEmulator" identifier="path=C:\Users\peorr\.android\avd\Pixel_9_Pro_API_35.avd" />

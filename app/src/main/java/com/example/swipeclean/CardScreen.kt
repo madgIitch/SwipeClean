@@ -288,6 +288,10 @@ fun CardScreen(vm: GalleryViewModel) {
                                         onDismiss = {
                                             Log.d(TAG_UI, "ZenMode dismissed")
                                             zenViewModel.toggleZenMode(false)
+                                        },
+                                        onAudioTrackChange = { track ->  // ← Agregar este parámetro
+                                            Log.d(TAG_UI, "Audio track changed to: ${track.displayName}")
+                                            zenViewModel.setAudioTrack(track)
                                         }
                                     )
                                 }

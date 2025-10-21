@@ -127,7 +127,7 @@ fun SwipeableCard(
     Card(
         modifier = Modifier
             .fillMaxSize()
-            .padding(if (isZenMode) 0.dp else 24.dp)
+            .padding(if (isZenMode) 16.dp else 24.dp)
             .pointerInput(swipeEnabled, isZenMode) {
                 awaitEachGesture {
                     // Esperar primer evento de puntero
