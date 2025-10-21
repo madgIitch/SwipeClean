@@ -50,11 +50,6 @@ fun CardScreen(vm: GalleryViewModel) {
     var showZenMessage by rememberSaveable { mutableStateOf(false) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
 
-    val zenPlayer = rememberZenAudioPlayer(
-        track = zenMode.audioTrack,
-        volume = zenMode.volume,
-        lifecycle = lifecycle
-    )
 
     val items by vm.items.collectAsState()
     val index by vm.index.collectAsState()
@@ -63,7 +58,25 @@ fun CardScreen(vm: GalleryViewModel) {
 
     val totalDeletedBytes by vm.totalDeletedBytes.collectAsState()
     val totalDeletedCount by vm.totalDeletedCount.collectAsState()
+    val total = items.size
+    val clampedIndex = if (total > 0) index.coerceIn(0, total - 1) else 0
+    val shownIndex = if (total > 0) clampedIndex + 1 else 0
 
+    val currentItem = items.getOrNull(clampedIndex)
+
+    val isCurrentItemVideo = remember(currentItem) {
+        currentItem?.let { item ->
+            item.isVideo ||
+                    item.mimeType.startsWith("video/") ||
+                    ctx.contentResolver.getType(item.uri)?.startsWith("video/") == true
+        } ?: false
+    }
+
+    val zenPlayer = rememberZenAudioPlayer(
+        track = zenMode.audioTrack,
+        volume = if (isCurrentItemVideo && zenMode.isEnabled) 0f else zenMode.volume,
+        lifecycle = lifecycle
+    )
     LaunchedEffect(items.size) { Log.d(TAG_UI, "items.size=${items.size}") }
     LaunchedEffect(index)      { Log.d(TAG_UI, "index=$index (items.size=${items.size})") }
     LaunchedEffect(filter)     { Log.d(TAG_UI, "filter=$filter") }
@@ -101,10 +114,8 @@ fun CardScreen(vm: GalleryViewModel) {
         ctx.startActivity(Intent.createChooser(intent, "Compartir con…"))
     }
 
-    val total = items.size
-    val clampedIndex = if (total > 0) index.coerceIn(0, total - 1) else 0
-    val shownIndex = if (total > 0) clampedIndex + 1 else 0
-    val currentItem = items.getOrNull(clampedIndex)
+
+
 
     var swipeEnabled by remember { mutableStateOf(true) }
     LaunchedEffect(swipeEnabled) { Log.d(TAG_UI, "swipeEnabled=$swipeEnabled") }
@@ -292,6 +303,10 @@ fun CardScreen(vm: GalleryViewModel) {
                                         onAudioTrackChange = { track ->  // ← Agregar este parámetro
                                             Log.d(TAG_UI, "Audio track changed to: ${track.displayName}")
                                             zenViewModel.setAudioTrack(track)
+                                        },
+                                        onHapticsIntensityChange = { intensity ->  // ← Nuevo
+                                            Log.d(TAG_UI, "Haptics intensity changed to: $intensity")
+                                            zenViewModel.setHapticsIntensity(intensity)
                                         }
                                     )
                                 }

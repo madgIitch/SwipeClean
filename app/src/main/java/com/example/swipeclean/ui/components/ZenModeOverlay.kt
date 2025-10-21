@@ -11,6 +11,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.Vibration
 import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.*
@@ -29,6 +30,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.swipeclean.R
+import com.example.swipeclean.zen.HapticsIntensity
 import com.example.swipeclean.zen.ZenAudioTrack
 import com.example.swipeclean.zen.ZenMode
 import kotlinx.coroutines.delay
@@ -57,6 +59,7 @@ fun ZenModeOverlay(
     showMessage: Boolean,
     onDismiss: () -> Unit,
     onAudioTrackChange: (ZenAudioTrack) -> Unit,
+    onHapticsIntensityChange: (HapticsIntensity) -> Unit,  // ← Nuevo callback
     modifier: Modifier = Modifier
 ) {
     // Seleccionar un mensaje aleatorio al activar ZenMode
@@ -107,6 +110,40 @@ fun ZenModeOverlay(
                             textAlign = TextAlign.Center
                         )
                     }
+            }
+
+            // Botón para cambiar intensidad de hápticos
+            IconButton(
+                onClick = {
+                    val nextIntensity = when(zenMode.hapticsIntensity) {
+                        HapticsIntensity.OFF -> HapticsIntensity.LOW
+                        HapticsIntensity.LOW -> HapticsIntensity.MEDIUM
+                        HapticsIntensity.MEDIUM -> HapticsIntensity.HIGH
+                        HapticsIntensity.HIGH -> HapticsIntensity.OFF
+                    }
+                    onHapticsIntensityChange(nextIntensity)
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomStart)  // Esquina opuesta al botón de audio
+                    .padding(16.dp)
+            ) {
+                Icon(
+                    imageVector = when(zenMode.hapticsIntensity) {
+                        HapticsIntensity.OFF -> Icons.Default.VolumeOff  // Reutilizar icono de volumen
+                        HapticsIntensity.LOW, HapticsIntensity.MEDIUM, HapticsIntensity.HIGH ->
+                            Icons.Default.Vibration  // Si existe, o usa otro
+                    },
+                    contentDescription = "Cambiar intensidad de hápticos",
+                    tint = Color.White,
+                    modifier = Modifier.alpha(
+                        when(zenMode.hapticsIntensity) {
+                            HapticsIntensity.OFF -> 0.3f
+                            HapticsIntensity.LOW -> 0.5f
+                            HapticsIntensity.MEDIUM -> 0.7f
+                            HapticsIntensity.HIGH -> 1.0f
+                        }
+                    )
+                )
             }
 
             IconButton(

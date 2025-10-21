@@ -29,8 +29,13 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.unit.dp
+import com.example.swipeclean.zen.HapticType
+import com.example.swipeclean.zen.HapticsIntensity
 import com.example.swipeclean.zen.ZenMode
 import kotlin.math.abs
+import androidx.compose.ui.platform.LocalContext
+import com.example.swipeclean.zen.ZenHaptics.performZenHaptic
+
 
 private const val TAG_SWIPE = "SwipeClean/Swipe"
 private const val DEBUG_VERBOSE = false
@@ -72,6 +77,9 @@ fun SwipeableCard(
 
     // Detectar si estamos en ZenMode
     val isZenMode = zenMode?.isEnabled == true
+    //Hapticos adaptados al ZenMode
+    val context = LocalContext.current
+
 
     // Estado del gesto
     var rawOffsetX by remember { mutableFloatStateOf(0f) }
@@ -108,17 +116,14 @@ fun SwipeableCard(
     var downProgress by remember { mutableFloatStateOf(0f) }
 
     // Hápticos adaptados al ZenMode
-    LaunchedEffect(progressX, upProgress, downProgress, swipeEnabled, isZenMode) {
+    LaunchedEffect(progressX, upProgress, downProgress, swipeEnabled, zenMode?.hapticsIntensity) {
         if (!swipeEnabled) return@LaunchedEffect
+
         val nearCommit = (abs(progressX) > 0.9f) || (upProgress > 0.9f) || (downProgress > 0.9f)
         if (!vibed && nearCommit) {
-            // En ZenMode, usar háptico más suave para mantener la calma
-            val feedbackType = if (isZenMode) {
-                HapticFeedbackType.TextHandleMove
-            } else {
-                HapticFeedbackType.LongPress
+            zenMode?.hapticsIntensity?.let { intensity ->
+                context.performZenHaptic(intensity, HapticType.SWIPE_THRESHOLD)
             }
-            haptics.performHapticFeedback(feedbackType)
             vibed = true
         }
         if (!nearCommit && vibed) vibed = false
@@ -256,6 +261,12 @@ fun SwipeableCard(
                         // Swipe derecho por distancia (guardar)
                         dragX > thresholdX -> {
                             Log.d(TAG_SWIPE, "→ SWIPE RIGHT (keep)")
+
+                            // Agregar feedback háptico antes de la acción
+                            zenMode?.hapticsIntensity?.let { intensity ->
+                                context.performZenHaptic(intensity, HapticType.SWIPE_COMPLETE_KEEP)
+                            }
+
                             rawOffsetX = containerWidthPx * 2f
                             onSwipeRight()
                             rawOffsetX = 0f
@@ -265,6 +276,12 @@ fun SwipeableCard(
                         // Swipe izquierdo por distancia (borrar)
                         dragX < -thresholdX -> {
                             Log.d(TAG_SWIPE, "→ SWIPE LEFT (trash)")
+
+                            // Agregar feedback háptico antes de la acción
+                            zenMode?.hapticsIntensity?.let { intensity ->
+                                context.performZenHaptic(intensity, HapticType.SWIPE_COMPLETE_DELETE)
+                            }
+
                             rawOffsetX = -containerWidthPx * 2f
                             onSwipeLeft()
                             rawOffsetX = 0f
