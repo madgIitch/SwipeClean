@@ -37,6 +37,7 @@ import com.example.swipeclean.zen.ZenViewModel
 import com.example.swipeclean.zen.rememberZenAudioPlayer
 import com.madglitch.swipeclean.GalleryViewModel
 import kotlinx.coroutines.delay
+import androidx.compose.ui.graphics.graphicsLayer
 
 private const val TAG_UI = "SwipeClean/UI"
 
@@ -66,6 +67,12 @@ fun CardScreen(vm: GalleryViewModel) {
     val total = items.size
     val clampedIndex = if (total > 0) index.coerceIn(0, total - 1) else 0
     val shownIndex = if (total > 0) clampedIndex + 1 else 0
+    val nextItem = remember(clampedIndex, items) {
+        if (total > 0) {
+            val nextIndex = (clampedIndex + 1) % total
+            items.getOrNull(nextIndex)
+        } else null
+    }
 
     val currentItem = items.getOrNull(clampedIndex)
 
@@ -264,6 +271,27 @@ fun CardScreen(vm: GalleryViewModel) {
                         Log.w(TAG_UI, "Galería vacía")
                         Text("No hay elementos en la galería", Modifier.align(Alignment.Center))
                     } else {
+                        // Tarjeta de previsualización (siguiente item) - detrás
+                        nextItem?.let { next ->
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(16.dp)
+                                    .graphicsLayer {
+                                        scaleX = 0.95f
+                                        scaleY = 0.95f
+                                        alpha = 0.5f
+                                    }
+                            ) {
+                                MediaCard(
+                                    item = next,
+                                    isZenMode = zenMode.isEnabled,
+                                    onSwipeEnabledChange = { /* No-op para preview */ }
+                                )
+                            }
+                        }
+
+                        // Tarjeta actual - encima
                         AnimatedContent(
                             targetState = clampedIndex,
                             transitionSpec = {
@@ -292,12 +320,10 @@ fun CardScreen(vm: GalleryViewModel) {
                                         shareCurrent()
                                     },
                                     onSwipeDown = {
-                                        // Toggle: si está activo, desactivar; si está inactivo, activar
                                         val newState = !zenMode.isEnabled
                                         Log.d(TAG_UI, "onSwipeDown → toggle ZenMode: ${zenMode.isEnabled} → $newState")
                                         zenViewModel.toggleZenMode(newState)
                                     }
-
                                 ) {
                                     MediaCard(
                                         item = itemAt,
@@ -307,8 +333,6 @@ fun CardScreen(vm: GalleryViewModel) {
                                             swipeEnabled = enabled
                                         }
                                     )
-                                    // Overlay de ZenMode
-
                                 }
                                 ZenModeOverlay(
                                     zenMode = zenMode,
@@ -320,8 +344,8 @@ fun CardScreen(vm: GalleryViewModel) {
                                     onAudioTrackChange = { track ->
                                         Log.d(TAG_UI, "Audio track changed to: ${track.displayName}")
                                         zenViewModel.setAudioTrack(track)
-                                    } ,
-                                    onHapticsIntensityChange = { intensity ->  // ← Nuevo
+                                    },
+                                    onHapticsIntensityChange = { intensity ->
                                         Log.d(TAG_UI, "Haptics intensity changed to: $intensity")
                                         zenViewModel.setHapticsIntensity(intensity)
                                     }
@@ -335,7 +359,6 @@ fun CardScreen(vm: GalleryViewModel) {
                     }
                 }
             }
-
 
         }
     }
