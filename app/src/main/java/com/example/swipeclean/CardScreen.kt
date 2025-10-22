@@ -16,7 +16,9 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -94,6 +96,10 @@ fun CardScreen(vm: GalleryViewModel) {
     } else {
         null
     }
+
+    val isHashing by vm.isHashing.collectAsState()
+    val hashingProgress by vm.hashingProgress.collectAsState()
+
     LaunchedEffect(items.size) { Log.d(TAG_UI, "items.size=${items.size}") }
     LaunchedEffect(index)      { Log.d(TAG_UI, "index=$index (items.size=${items.size})") }
     LaunchedEffect(filter)     { Log.d(TAG_UI, "filter=$filter") }
@@ -360,6 +366,36 @@ fun CardScreen(vm: GalleryViewModel) {
                 }
             }
 
+            // ← OVERLAY DE PROGRESO DE HASHING (NUEVO)
+            if (isHashing) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.7f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        CircularProgressIndicator(
+                            progress = hashingProgress,
+                            modifier = Modifier.size(64.dp),
+                            strokeWidth = 6.dp
+                        )
+                        Text(
+                            "Detectando duplicados...",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = Color.White
+                        )
+                        Text(
+                            "${(hashingProgress * 100).toInt()}%",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = Color.White
+                        )
+                    }
+                }
+            }
         }
     }
 }

@@ -25,6 +25,9 @@ fun keyIdFor(filterName: String) = stringPreferencesKey("id_$filterName")
 // Claves para ZenViewModel
 val KEY_ZEN_ENABLED = booleanPreferencesKey("zen_enabled")
 
+// En data/UserPreferences.kt o donde definas las claves
+val KEY_FILE_HASHES = stringPreferencesKey("file_hashes")  // JSON map de URI -> hash
+
 // Claves para Tutorial y Estadísticas ← AÑADIR ESTAS LÍNEAS
 val KEY_TUTORIAL_COMPLETED = booleanPreferencesKey("tutorial_completed")
 val KEY_TOTAL_DELETED_BYTES = stringPreferencesKey("total_deleted_bytes")

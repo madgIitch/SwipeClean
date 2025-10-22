@@ -110,6 +110,13 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
     private val _cleaningProgress = MutableStateFlow(0f)
     val cleaningProgress: StateFlow<Float> = _cleaningProgress
 
+    // En la sección de State (UI) después de cleaningProgress
+    private val _hashingProgress = MutableStateFlow(0f)
+    val hashingProgress: StateFlow<Float> = _hashingProgress
+
+    private val _isHashing = MutableStateFlow(false)
+    val isHashing: StateFlow<Boolean> = _isHashing
+
     // ---------------------------
     // Init: restaurar estado
     // ---------------------------
@@ -352,43 +359,137 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // Cargar caché de hashes desde DataStore
+    private suspend fun loadHashCache(): Map<String, String> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val json = dataStore.data.first()[KEY_FILE_HASHES] ?: "{}"
+                // Parsear JSON simple: "uri1":"hash1","uri2":"hash2"
+                json.removeSurrounding("{", "}")
+                    .split(",")
+                    .mapNotNull { entry ->
+                        val parts = entry.split(":")
+                        if (parts.size == 2) {
+                            parts[0].trim('"') to parts[1].trim('"')
+                        } else null
+                    }
+                    .toMap()
+            } catch (e: Exception) {
+                android.util.Log.e("SwipeClean/HashCache", "Error cargando caché", e)
+                emptyMap()
+            }
+        }
+    }
+
+    // Guardar caché de hashes en DataStore
+    private suspend fun saveHashCache(cache: Map<String, String>) {
+        withContext(Dispatchers.IO) {
+            try {
+                // Convertir a JSON simple
+                val json = cache.entries.joinToString(",", "{", "}") { (uri, hash) ->
+                    "\"$uri\":\"$hash\""
+                }
+                dataStore.edit { prefs ->
+                    prefs[KEY_FILE_HASHES] = json
+                }
+                android.util.Log.d("SwipeClean/HashCache", "Caché guardada: ${cache.size} hashes")
+            } catch (e: Exception) {
+                android.util.Log.e("SwipeClean/HashCache", "Error guardando caché", e)
+            }
+        }
+    }
+
+    // Calcular hash con caché y progreso
+    private suspend fun calculateFileHashWithCache(
+        uri: Uri,
+        cache: MutableMap<String, String>
+    ): String? {
+        val uriStr = uri.toString()
+
+        // Verificar caché primero
+        cache[uriStr]?.let { return it }
+
+        // Calcular hash si no está en caché
+        val hash = calculateFileHash(uri)
+
+        // Guardar en caché si se calculó exitosamente
+        if (hash != null) {
+            cache[uriStr] = hash
+        }
+
+        return hash
+    }
+
     private suspend fun loadInternal(filter: AdvancedFilter) {
         val ctx = getApplication<Application>().applicationContext
 
         val data = withContext(Dispatchers.IO) {
-            val items = mutableListOf<MediaItem>()
+            // Cargar todos los items primero
+            val allItems = mutableListOf<MediaItem>()
 
             // Si el filtro GPS está activo, consultar imágenes y videos por separado
             if (filter.hasLocation == true) {
-                // Consultar solo imágenes con ubicación
-                items.addAll(loadImagesWithLocation(ctx, filter))
-                // Videos generalmente no tienen LATITUDE/LONGITUDE en MediaStore
+                allItems.addAll(loadImagesWithLocation(ctx, filter))
             } else {
-                // Query normal usando MediaStore.Files
-                items.addAll(loadAllMedia(ctx, filter))
+                allItems.addAll(loadAllMedia(ctx, filter))
             }
 
             // Aplicar filtro de duplicados si está activo
             if (filter.showDuplicatesOnly) {
-                val itemsWithHash = items.map { item ->
-                    item to calculateFileHash(item.uri)
+                _isHashing.value = true
+                _hashingProgress.value = 0f
+
+                android.util.Log.d("SwipeClean/Duplicates", "Detectando duplicados en ${allItems.size} items...")
+
+                // Cargar caché existente
+                val hashCache = loadHashCache().toMutableMap()
+                android.util.Log.d("SwipeClean/HashCache", "Caché cargada: ${hashCache.size} hashes")
+
+                // Calcular hashes con progreso
+                val itemsWithHash = allItems.mapIndexed { index, item ->
+                    val hash = calculateFileHashWithCache(item.uri, hashCache)
+
+                    // Actualizar progreso
+                    val progress = (index + 1).toFloat() / allItems.size
+                    _hashingProgress.value = progress
+
+                    if (index % 10 == 0) {
+                        android.util.Log.d(
+                            "SwipeClean/Duplicates",
+                            "Progreso: ${(progress * 100).toInt()}% ($index/${allItems.size})"
+                        )
+                    }
+
+                    item to hash
                 }
 
+                // Guardar caché actualizada
+                saveHashCache(hashCache)
+
+                // Agrupar por hash
                 val hashGroups = itemsWithHash.groupBy { it.second }
 
+                // Filtrar solo los grupos con más de un elemento (duplicados)
                 val duplicates = hashGroups
                     .filter { (hash, group) -> hash != null && group.size > 1 }
                     .flatMap { (_, group) -> group.map { it.first } }
 
+                _isHashing.value = false
+                _hashingProgress.value = 0f
+
+                android.util.Log.d(
+                    "SwipeClean/Duplicates",
+                    "Encontrados ${duplicates.size} duplicados de ${allItems.size} items"
+                )
+
                 duplicates
             } else {
-                items
+                allItems
             }
         }
 
         _items.value = data
     }
-
     private suspend fun loadImagesWithLocation(
         ctx: Context,
         filter: AdvancedFilter
@@ -851,6 +952,7 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
             persistAsync()
         }
     }
+
 
     // ---------------------------
     // Permisos
