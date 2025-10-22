@@ -329,23 +329,154 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
             persistAsync()
         }
     }
+    // Función auxiliar para calcular hash
+    private suspend fun calculateFileHash(uri: Uri): String? {
+        return withContext(Dispatchers.IO) {
+            try {
+                val inputStream = getApplication<Application>().contentResolver.openInputStream(uri)
+                val digest = java.security.MessageDigest.getInstance("MD5")
+                val buffer = ByteArray(8192)
+                var read: Int
 
+                inputStream?.use { stream ->
+                    while (stream.read(buffer).also { read = it } > 0) {
+                        digest.update(buffer, 0, read)
+                    }
+                }
+
+                digest.digest().joinToString("") { "%02x".format(it) }
+            } catch (e: Exception) {
+                android.util.Log.e("SwipeClean/Hash", "Error calculando hash", e)
+                null
+            }
+        }
+    }
 
     private suspend fun loadInternal(filter: AdvancedFilter) {
         val ctx = getApplication<Application>().applicationContext
+
         val data = withContext(Dispatchers.IO) {
-            ctx.loadMediaAdvanced(filter)
+            val items = mutableListOf<MediaItem>()
+
+            // Si el filtro GPS está activo, consultar imágenes y videos por separado
+            if (filter.hasLocation == true) {
+                // Consultar solo imágenes con ubicación
+                items.addAll(loadImagesWithLocation(ctx, filter))
+                // Videos generalmente no tienen LATITUDE/LONGITUDE en MediaStore
+            } else {
+                // Query normal usando MediaStore.Files
+                items.addAll(loadAllMedia(ctx, filter))
+            }
+
+            // Aplicar filtro de duplicados si está activo
+            if (filter.showDuplicatesOnly) {
+                val itemsWithHash = items.map { item ->
+                    item to calculateFileHash(item.uri)
+                }
+
+                val hashGroups = itemsWithHash.groupBy { it.second }
+
+                val duplicates = hashGroups
+                    .filter { (hash, group) -> hash != null && group.size > 1 }
+                    .flatMap { (_, group) -> group.map { it.first } }
+
+                duplicates
+            } else {
+                items
+            }
         }
+
         _items.value = data
     }
 
-    fun Context.loadMediaAdvanced(filter: AdvancedFilter): List<MediaItem> {
+    private suspend fun loadImagesWithLocation(
+        ctx: Context,
+        filter: AdvancedFilter
+    ): List<MediaItem> {
+        val items = mutableListOf<MediaItem>()
+
+        val projection = arrayOf(
+            MediaStore.Images.Media._ID,
+            MediaStore.Images.Media.MIME_TYPE,
+            MediaStore.Images.Media.DATE_ADDED,
+            MediaStore.Images.Media.LATITUDE,
+            MediaStore.Images.Media.LONGITUDE
+        )
+
+        val selectionParts = mutableListOf<String>()
+        val selectionArgs = mutableListOf<String>()
+
+        // Filtro GPS obligatorio
+        selectionParts.add("${MediaStore.Images.Media.LATITUDE} IS NOT NULL")
+        selectionParts.add("${MediaStore.Images.Media.LONGITUDE} IS NOT NULL")
+
+        // Filtro por rango de fechas
+        filter.dateRange?.let { range ->
+            val currentTime = System.currentTimeMillis() / 1000
+            val threshold = when (range) {
+                is DateRange.Last7Days -> currentTime - (7 * 24 * 60 * 60)
+                is DateRange.LastMonth -> currentTime - (30 * 24 * 60 * 60)
+                is DateRange.LastYear -> currentTime - (365 * 24 * 60 * 60)
+                is DateRange.Custom -> range.startMillis / 1000
+            }
+            selectionParts.add("${MediaStore.Images.Media.DATE_ADDED} >= ?")
+            selectionArgs.add(threshold.toString())
+        }
+
+        // Filtro por tamaño
+        filter.sizeRange?.let { range ->
+            selectionParts.add("${MediaStore.Images.Media.SIZE} >= ? AND ${MediaStore.Images.Media.SIZE} <= ?")
+            selectionArgs.add(range.minBytes.toString())
+            selectionArgs.add(range.maxBytes.toString())
+        }
+
+        val selection = selectionParts.joinToString(" AND ")
+
+        ctx.contentResolver.query(
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,  // ← Usar URI de imágenes
+            projection,
+            selection,
+            selectionArgs.toTypedArray(),
+            "${MediaStore.Images.Media.DATE_ADDED} DESC"
+        )?.use { cursor ->
+            val colId = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+            val colMime = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.MIME_TYPE)
+            val colAdded = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED)
+
+            while (cursor.moveToNext()) {
+                val id = cursor.getLong(colId)
+                val mime = cursor.getString(colMime) ?: "image/*"
+                val addedS = cursor.getLong(colAdded)
+
+                val uri = android.content.ContentUris.withAppendedId(
+                    MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                    id
+                )
+
+                items.add(MediaItem(
+                    id = id,
+                    uri = uri,
+                    mimeType = mime,
+                    isVideo = false,
+                    dateTaken = addedS * 1000L
+                ))
+            }
+        }
+
+        return items
+    }
+
+    private suspend fun loadAllMedia(
+        ctx: Context,
+        filter: AdvancedFilter
+    ): List<MediaItem> {
+        val items = mutableListOf<MediaItem>()
+
         val projection = arrayOf(
             MediaStore.Files.FileColumns._ID,
-            MediaStore.Files.FileColumns.DISPLAY_NAME,
-            MediaStore.Files.FileColumns.SIZE,
+            MediaStore.Files.FileColumns.MIME_TYPE,
             MediaStore.Files.FileColumns.DATE_ADDED,
-            MediaStore.Files.FileColumns.MIME_TYPE
+            MediaStore.Files.FileColumns.MEDIA_TYPE
         )
 
         val selectionParts = mutableListOf<String>()
@@ -353,29 +484,29 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
 
         // Filtro por tipo de medio
         when (filter.mediaType) {
-            GalleryViewModel.MediaType.IMAGES -> {
+            MediaType.IMAGES -> {
                 selectionParts.add("${MediaStore.Files.FileColumns.MEDIA_TYPE} = ?")
                 selectionArgs.add(MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE.toString())
             }
-            GalleryViewModel.MediaType.VIDEOS -> {
+            MediaType.VIDEOS -> {
                 selectionParts.add("${MediaStore.Files.FileColumns.MEDIA_TYPE} = ?")
                 selectionArgs.add(MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO.toString())
             }
-            GalleryViewModel.MediaType.ALL -> {
+            MediaType.ALL -> {
                 selectionParts.add("(${MediaStore.Files.FileColumns.MEDIA_TYPE} = ? OR ${MediaStore.Files.FileColumns.MEDIA_TYPE} = ?)")
                 selectionArgs.add(MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE.toString())
                 selectionArgs.add(MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO.toString())
             }
         }
 
-        // Filtro por fecha
+        // Filtro por rango de fechas
         filter.dateRange?.let { range ->
             val currentTime = System.currentTimeMillis() / 1000
             val threshold = when (range) {
-                is GalleryViewModel.DateRange.Last7Days -> currentTime - (7 * 24 * 60 * 60)
-                is GalleryViewModel.DateRange.LastMonth -> currentTime - (30 * 24 * 60 * 60)
-                is GalleryViewModel.DateRange.LastYear -> currentTime - (365 * 24 * 60 * 60)
-                is GalleryViewModel.DateRange.Custom -> range.startMillis / 1000
+                is DateRange.Last7Days -> currentTime - (7 * 24 * 60 * 60)
+                is DateRange.LastMonth -> currentTime - (30 * 24 * 60 * 60)
+                is DateRange.LastYear -> currentTime - (365 * 24 * 60 * 60)
+                is DateRange.Custom -> range.startMillis / 1000
             }
             selectionParts.add("${MediaStore.Files.FileColumns.DATE_ADDED} >= ?")
             selectionArgs.add(threshold.toString())
@@ -389,27 +520,32 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
         }
 
         val selection = selectionParts.joinToString(" AND ")
-        val items = mutableListOf<MediaItem>()
 
-        contentResolver.query(
+        ctx.contentResolver.query(
             MediaStore.Files.getContentUri("external"),
             projection,
             selection,
             selectionArgs.toTypedArray(),
             "${MediaStore.Files.FileColumns.DATE_ADDED} DESC"
         )?.use { cursor ->
-            val idCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
-            val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DISPLAY_NAME)
-            val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.SIZE)
-            val mimeCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MIME_TYPE)
+            val colId = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
+            val colMime = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MIME_TYPE)
+            val colAdded = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_ADDED)
+            val colType = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MEDIA_TYPE)
 
             while (cursor.moveToNext()) {
-                val id = cursor.getLong(idCol)
-                val name = cursor.getString(nameCol)
-                val size = cursor.getLong(sizeCol)
-                val mime = cursor.getString(mimeCol) ?: ""
+                val id = cursor.getLong(colId)
+                val mime = cursor.getString(colMime) ?: ""
+                val mtyp = cursor.getInt(colType)
+                val addedS = cursor.getLong(colAdded)
 
-                val uri = ContentUris.withAppendedId(
+                val isVideo = when {
+                    mime.startsWith("video/") -> true
+                    mime.startsWith("image/") -> false
+                    else -> (mtyp == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO)
+                }
+
+                val uri = android.content.ContentUris.withAppendedId(
                     MediaStore.Files.getContentUri("external"),
                     id
                 )
@@ -417,15 +553,17 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
                 items.add(MediaItem(
                     id = id,
                     uri = uri,
-                    mimeType = mime,
-                    isVideo = mime.startsWith("video/"),
-                    dateTaken = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_ADDED)) * 1000 // Convert to milliseconds
+                    mimeType = mime.ifEmpty { if (isVideo) "video/*" else "image/*" },
+                    isVideo = isVideo,
+                    dateTaken = addedS * 1000L
                 ))
             }
         }
 
         return items
     }
+
+
     private suspend fun calculateTotalSize(uris: List<Uri>): Long {
         return withContext(Dispatchers.IO) {
             var total = 0L
