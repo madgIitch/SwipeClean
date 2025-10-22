@@ -117,11 +117,14 @@ fun SwipeableCard(
 
     // Hápticos adaptados al ZenMode
     LaunchedEffect(progressX, upProgress, downProgress, swipeEnabled, zenMode?.hapticsIntensity) {
+        Log.d(TAG_SWIPE, "Haptics check: swipeEnabled=$swipeEnabled, zenMode=$zenMode")
+        Log.d(TAG_SWIPE, "Haptics LaunchedEffect: zenMode=$zenMode, intensity=${zenMode?.hapticsIntensity}")
         if (!swipeEnabled) return@LaunchedEffect
 
         val nearCommit = (abs(progressX) > 0.9f) || (upProgress > 0.9f) || (downProgress > 0.9f)
         if (!vibed && nearCommit) {
             zenMode?.hapticsIntensity?.let { intensity ->
+                Log.d(TAG_SWIPE, "About to call performZenHaptic")
                 context.performZenHaptic(intensity, HapticType.SWIPE_THRESHOLD)
             }
             vibed = true
@@ -292,10 +295,16 @@ fun SwipeableCard(
                         abs(vX) > flingVelocityX -> {
                             if (vX > 0f) {
                                 Log.d(TAG_SWIPE, "→ FLING RIGHT (keep)")
+                                zenMode?.hapticsIntensity?.let { intensity ->
+                                    context.performZenHaptic(intensity, HapticType.SWIPE_COMPLETE_KEEP)
+                                }
                                 rawOffsetX = containerWidthPx * 2f
                                 onSwipeRight()
                             } else {
                                 Log.d(TAG_SWIPE, "→ FLING LEFT (trash)")
+                                zenMode?.hapticsIntensity?.let { intensity ->
+                                    context.performZenHaptic(intensity, HapticType.SWIPE_COMPLETE_DELETE)
+                                }
                                 rawOffsetX = -containerWidthPx * 2f
                                 onSwipeLeft()
                             }

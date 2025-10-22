@@ -49,6 +49,9 @@ fun CardScreen(vm: GalleryViewModel) {
     // Obtener ZenViewModel
     val zenViewModel: ZenViewModel = viewModel()
     val zenMode by zenViewModel.zenMode.collectAsState()
+    LaunchedEffect(zenMode) {
+        Log.d(TAG_UI, "zenMode state: isEnabled=${zenMode.isEnabled}, haptics=${zenMode.hapticsIntensity}")
+    }
     var showZenMessage by rememberSaveable { mutableStateOf(false) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
 
@@ -294,6 +297,7 @@ fun CardScreen(vm: GalleryViewModel) {
                                         Log.d(TAG_UI, "onSwipeDown → toggle ZenMode: ${zenMode.isEnabled} → $newState")
                                         zenViewModel.toggleZenMode(newState)
                                     }
+
                                 ) {
                                     MediaCard(
                                         item = itemAt,
