@@ -50,8 +50,27 @@ private val zenMessages = listOf(
     "Cada decisión es un paso hacia la claridad.",
     "Confía en tu intuición.",
     "Menos es más.",
-    "Libera espacio, libera mente."
+    "Libera espacio, libera mente.",
+    "Lo simple también puede ser bello.",
+    "No todo lo que guardas te pertenece todavía.",
+    "Haz sitio para lo nuevo.",
+    "Suelta el ruido. Quédate con la esencia.",
+    "Cada swipe es una elección consciente.",
+    "La calma llega cuando dejas espacio para ella.",
+    "A veces limpiar también es recordar.",
+    "No tienes que conservarlo todo para que haya significado.",
+    "El orden exterior refleja tu orden interior.",
+    "Elimina sin prisa. Observa sin juicio.",
+    "Tu galería también merece respirar.",
+    "Desliza con intención, no con impulso.",
+    "El silencio visual también es arte.",
+    "Entre borrar y conservar hay un instante de claridad.",
+    "No acumules momentos, vive los que importan.",
+    "Suelta. No estás perdiendo, estás aligerando.",
+    "Cada foto que dejas ir abre un nuevo espacio mental.",
+    "Tu paz empieza en el carrete."
 )
+
 
 @Composable
 fun ZenModeOverlay(

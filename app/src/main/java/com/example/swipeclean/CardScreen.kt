@@ -74,13 +74,12 @@ fun CardScreen(vm: GalleryViewModel) {
         } ?: false
     }
 
-    val zenPlayer = if (zenMode.isEnabled && zenMode.audioTrack != ZenAudioTrack.NONE) {
+    val zenPlayer = if (zenMode.isEnabled) {
         rememberZenAudioPlayer(
             track = zenMode.audioTrack,
             volume = if (isCurrentItemVideo && zenMode.isEnabled) 0f else zenMode.volume,
             lifecycle = lifecycle,
             isEnabled = zenMode.isEnabled
-
         )
     } else {
         null
