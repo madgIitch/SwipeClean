@@ -78,7 +78,9 @@ fun CardScreen(vm: GalleryViewModel) {
         rememberZenAudioPlayer(
             track = zenMode.audioTrack,
             volume = if (isCurrentItemVideo && zenMode.isEnabled) 0f else zenMode.volume,
-            lifecycle = lifecycle
+            lifecycle = lifecycle,
+            isEnabled = zenMode.isEnabled
+
         )
     } else {
         null

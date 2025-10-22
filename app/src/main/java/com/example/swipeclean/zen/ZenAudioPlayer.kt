@@ -23,31 +23,29 @@ private const val TAG = "SwipeClean/ZenAudio"
 fun rememberZenAudioPlayer(
     track: ZenAudioTrack,
     volume: Float,
-    lifecycle: Lifecycle
+    lifecycle: Lifecycle,
+    isEnabled: Boolean
 ): ExoPlayer? {
     val context = LocalContext.current
-
-    // Variable para mantener referencia al player actual
     var currentPlayer by remember { mutableStateOf<ExoPlayer?>(null) }
 
-    // Si el track es NONE, liberar player y retornar null
-    if (track == ZenAudioTrack.NONE) {
-        LaunchedEffect(Unit) {
+    // Si Zen Mode está desactivado, liberar player y retornar null
+    if (!isEnabled) {
+        LaunchedEffect(isEnabled) {
             currentPlayer?.let { oldPlayer ->
-                Log.d(TAG, "Track is NONE, releasing current player")
+                Log.d(TAG, "Zen Mode disabled, releasing player")
                 oldPlayer.pause()
                 oldPlayer.stop()
                 oldPlayer.release()
                 currentPlayer = null
             }
         }
-        Log.d(TAG, "Track is NONE, returning null player")
         return null
     }
 
-    // Crear nuevo player cuando cambia el track
-    val player = remember(track) {
-        // CRÍTICO: Liberar el player anterior ANTES de crear el nuevo
+    // Crear player para CUALQUIER track (incluyendo NONE/Silencio con archivo de audio)
+    // NO hay verificación especial para NONE - se trata como cualquier otro track
+    val player = remember(track, isEnabled) {
         currentPlayer?.let { oldPlayer ->
             Log.d(TAG, "Releasing previous player before creating new one")
             oldPlayer.pause()
@@ -57,32 +55,22 @@ fun rememberZenAudioPlayer(
 
         Log.d(TAG, "Creating player for track: ${track.displayName} (rawResId=${track.rawResId})")
 
-        ExoPlayer.Builder(context)
-            .build()
-            .apply {
-                val uri = RawResourceDataSource.buildRawResourceUri(track.rawResId)
-                Log.d(TAG, "Built URI: $uri")
-
-                setMediaItem(MediaItem.fromUri(uri))
-                repeatMode = Player.REPEAT_MODE_ONE
-
-                setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(C.USAGE_MEDIA)
-                        .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
-                        .build(),
-                    true
-                )
-
-                prepare()
-                Log.d(TAG, "Player prepared for track: ${track.displayName}")
-
-                // Guardar referencia al nuevo player
-                currentPlayer = this
-            }
+        ExoPlayer.Builder(context).build().apply {
+            val uri = RawResourceDataSource.buildRawResourceUri(track.rawResId)
+            setMediaItem(MediaItem.fromUri(uri))
+            repeatMode = Player.REPEAT_MODE_ONE
+            setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(C.USAGE_MEDIA)
+                    .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+                    .build(),
+                true
+            )
+            prepare()
+        }.also { currentPlayer = it }
     }
 
-    // ← NUEVO: Reproducir automáticamente cuando se crea un nuevo player
+    // Reproducir automáticamente cuando se crea un nuevo player
     LaunchedEffect(player) {
         if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
             Log.d(TAG, "New player created while RESUMED, starting playback")

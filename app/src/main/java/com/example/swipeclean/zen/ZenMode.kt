@@ -10,20 +10,20 @@ data class ZenMode(
     val showMotivationalMessages: Boolean = true,
     val particlesEnabled: Boolean = false
 )
-
 enum class ZenAudioTrack(val rawResId: Int, val displayName: String) {
     RAIN(R.raw.zen_rain, "Lluvia"),
     OCEAN(R.raw.zen_ocean, "Olas del Mar"),
     FOREST(R.raw.zen_forest, "Bosque"),
-    NONE(0, "Silencio");
+    NONE(R.raw.zen_silence, "Silencio");  // ← Cambiar de 0 a R.raw.zen_silence
 
     fun next(): ZenAudioTrack = when(this) {
         RAIN -> OCEAN
         OCEAN -> FOREST
-        FOREST ->  NONE
+        FOREST -> NONE
         NONE -> RAIN
     }
 }
+
 
 enum class HapticsIntensity {
     OFF, LOW, MEDIUM, HIGH
