@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import android.content.ContentUris
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ViewModel
@@ -60,9 +61,29 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
     val index: StateFlow<Int> = _index
 
     // Filtro actual (persistido) + expuesto a la UI
-    private var currentFilter: MediaFilter = MediaFilter.ALL
-    private val _filter = MutableStateFlow(MediaFilter.ALL)
-    val filter: StateFlow<MediaFilter> = _filter
+    private var currentFilter: AdvancedFilter = AdvancedFilter()
+    private val _advancedFilter = MutableStateFlow(AdvancedFilter())
+    val advancedFilter: StateFlow<AdvancedFilter> = _advancedFilter
+
+    // Nueva estructura para filtros avanzados
+    data class AdvancedFilter(
+        val mediaType: MediaType = MediaType.ALL,
+        val dateRange: DateRange? = null,
+        val sizeRange: SizeRange? = null,
+        val hasLocation: Boolean? = null,
+        val showDuplicatesOnly: Boolean = false
+    )
+
+    enum class MediaType { ALL, IMAGES, VIDEOS }
+
+    sealed class DateRange {
+        object Last7Days : DateRange()
+        object LastMonth : DateRange()
+        object LastYear : DateRange()
+        data class Custom(val startMillis: Long, val endMillis: Long) : DateRange()
+    }
+
+    data class SizeRange(val minBytes: Long, val maxBytes: Long)
 
     // Colas/sets para acciones
     private val pendingTrash = mutableListOf<Uri>()
@@ -115,12 +136,13 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
                 android.util.Log.e("SwipeClean/VM", "Leyendo KEY_LAST_FILTER falló", it)
             }.getOrElse { legacy.filter }
 
-            currentFilter = when (lastFilterName) {
-                "IMAGES" -> MediaFilter.IMAGES
-                "VIDEOS" -> MediaFilter.VIDEOS
-                else     -> MediaFilter.ALL
+            val mediaType = when (lastFilterName) {
+                "IMAGES" -> MediaType.IMAGES
+                "VIDEOS" -> MediaType.VIDEOS
+                else     -> MediaType.ALL
             }
-            _filter.value = currentFilter
+            currentFilter = AdvancedFilter(mediaType = mediaType)
+            _advancedFilter.value = currentFilter
             android.util.Log.d("SwipeClean/VM", "init → lastFilter=$lastFilterName → currentFilter=$currentFilter")
 
             // Restaurar cola pendiente (legacy)
@@ -191,9 +213,9 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
             // ─────────────────────────────────────────────────────────────
             // 5) Restauración por-filtro: ID → URI → índice seguro
             // ─────────────────────────────────────────────────────────────
-            val savedIdStr          = prefs?.get(keyIdFor(currentFilter.name))
-            val savedUriForFilter   = prefs?.get(keyUriFor(currentFilter.name))
-            val savedIndexForFilter = prefs?.get(keyIndexFor(currentFilter.name)) ?: legacy.index
+            val savedIdStr = prefs?.get(keyIdFor(currentFilter.mediaType.name))  // ← Changed
+            val savedUriForFilter = prefs?.get(keyUriFor(currentFilter.mediaType.name))  // ← Changed
+            val savedIndexForFilter = prefs?.get(keyIndexFor(currentFilter.mediaType.name)) ?: legacy.index  // ← Changed
 
             val list = _items.value
 
@@ -252,10 +274,11 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
     // ---------------------------
     // API para la UI: cambiar filtro
     // ---------------------------
-    fun setFilter(newFilter: MediaFilter) {
-        if (newFilter == _filter.value) return
+    fun setAdvancedFilter(newFilter: AdvancedFilter) {
+        if (newFilter == _advancedFilter.value) return
         persistNow()
-        _filter.value = newFilter
+        _advancedFilter.value = newFilter
+        currentFilter = newFilter
         load(newFilter)
     }
 
@@ -267,9 +290,9 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
     // ---------------------------
     // Carga / Filtro
     // ---------------------------
-    fun load(filter: MediaFilter = MediaFilter.ALL) {
+    fun load(filter: AdvancedFilter = AdvancedFilter()) {
         viewModelScope.launch {
-            _filter.value = filter
+            _advancedFilter.value = filter
             currentFilter = filter
             val appCtx = getApplication<Application>().applicationContext
 
@@ -281,9 +304,10 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
             val list = _items.value
 
             val prefs = dataStore.data.first()
-            val savedIdStr = prefs[keyIdFor(filter.name)]
-            val savedUriForFilter = prefs[keyUriFor(filter.name)]
-            val savedIndexForFilter = prefs[keyIndexFor(filter.name)] ?: 0
+            val filterKey = filter.mediaType.name
+            val savedIdStr = prefs[keyIdFor(filterKey)]
+            val savedUriForFilter = prefs[keyUriFor(filterKey)]
+            val savedIndexForFilter = prefs[keyIndexFor(filterKey)] ?: 0
 
             val candidateById = savedIdStr?.toLongOrNull()?.let { id ->
                 list.indexOfFirst { it.id == id }
@@ -306,12 +330,102 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private suspend fun loadInternal(filter: MediaFilter) {
+
+    private suspend fun loadInternal(filter: AdvancedFilter) {
         val ctx = getApplication<Application>().applicationContext
-        val data = withContext(Dispatchers.IO) { ctx.loadMedia(filter) }
+        val data = withContext(Dispatchers.IO) {
+            ctx.loadMediaAdvanced(filter)
+        }
         _items.value = data
     }
 
+    fun Context.loadMediaAdvanced(filter: AdvancedFilter): List<MediaItem> {
+        val projection = arrayOf(
+            MediaStore.Files.FileColumns._ID,
+            MediaStore.Files.FileColumns.DISPLAY_NAME,
+            MediaStore.Files.FileColumns.SIZE,
+            MediaStore.Files.FileColumns.DATE_ADDED,
+            MediaStore.Files.FileColumns.MIME_TYPE
+        )
+
+        val selectionParts = mutableListOf<String>()
+        val selectionArgs = mutableListOf<String>()
+
+        // Filtro por tipo de medio
+        when (filter.mediaType) {
+            GalleryViewModel.MediaType.IMAGES -> {
+                selectionParts.add("${MediaStore.Files.FileColumns.MEDIA_TYPE} = ?")
+                selectionArgs.add(MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE.toString())
+            }
+            GalleryViewModel.MediaType.VIDEOS -> {
+                selectionParts.add("${MediaStore.Files.FileColumns.MEDIA_TYPE} = ?")
+                selectionArgs.add(MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO.toString())
+            }
+            GalleryViewModel.MediaType.ALL -> {
+                selectionParts.add("(${MediaStore.Files.FileColumns.MEDIA_TYPE} = ? OR ${MediaStore.Files.FileColumns.MEDIA_TYPE} = ?)")
+                selectionArgs.add(MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE.toString())
+                selectionArgs.add(MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO.toString())
+            }
+        }
+
+        // Filtro por fecha
+        filter.dateRange?.let { range ->
+            val currentTime = System.currentTimeMillis() / 1000
+            val threshold = when (range) {
+                is GalleryViewModel.DateRange.Last7Days -> currentTime - (7 * 24 * 60 * 60)
+                is GalleryViewModel.DateRange.LastMonth -> currentTime - (30 * 24 * 60 * 60)
+                is GalleryViewModel.DateRange.LastYear -> currentTime - (365 * 24 * 60 * 60)
+                is GalleryViewModel.DateRange.Custom -> range.startMillis / 1000
+            }
+            selectionParts.add("${MediaStore.Files.FileColumns.DATE_ADDED} >= ?")
+            selectionArgs.add(threshold.toString())
+        }
+
+        // Filtro por tamaño
+        filter.sizeRange?.let { range ->
+            selectionParts.add("${MediaStore.Files.FileColumns.SIZE} >= ? AND ${MediaStore.Files.FileColumns.SIZE} <= ?")
+            selectionArgs.add(range.minBytes.toString())
+            selectionArgs.add(range.maxBytes.toString())
+        }
+
+        val selection = selectionParts.joinToString(" AND ")
+        val items = mutableListOf<MediaItem>()
+
+        contentResolver.query(
+            MediaStore.Files.getContentUri("external"),
+            projection,
+            selection,
+            selectionArgs.toTypedArray(),
+            "${MediaStore.Files.FileColumns.DATE_ADDED} DESC"
+        )?.use { cursor ->
+            val idCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
+            val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DISPLAY_NAME)
+            val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.SIZE)
+            val mimeCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MIME_TYPE)
+
+            while (cursor.moveToNext()) {
+                val id = cursor.getLong(idCol)
+                val name = cursor.getString(nameCol)
+                val size = cursor.getLong(sizeCol)
+                val mime = cursor.getString(mimeCol) ?: ""
+
+                val uri = ContentUris.withAppendedId(
+                    MediaStore.Files.getContentUri("external"),
+                    id
+                )
+
+                items.add(MediaItem(
+                    id = id,
+                    uri = uri,
+                    mimeType = mime,
+                    isVideo = mime.startsWith("video/"),
+                    dateTaken = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_ADDED)) * 1000 // Convert to milliseconds
+                ))
+            }
+        }
+
+        return items
+    }
     private suspend fun calculateTotalSize(uris: List<Uri>): Long {
         return withContext(Dispatchers.IO) {
             var total = 0L
@@ -377,21 +491,23 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
         runCatching {
             runBlocking(Dispatchers.IO) {
                 dataStore.edit { p ->
-                    // Por filtro actual
-                    p[keyIndexFor(currentFilter.name)] = safeIndex
-                    if (currentUriStr != null) p[keyUriFor(currentFilter.name)] = currentUriStr
-                    else p.remove(keyUriFor(currentFilter.name))
-                    if (currentIdStr != null) p[keyIdFor(currentFilter.name)] = currentIdStr
-                    else p.remove(keyIdFor(currentFilter.name))
+                    // Por filtro actual (usar mediaType.name en lugar de name)
+                    p[keyIndexFor(currentFilter.mediaType.name)] = safeIndex
+                    if (currentUriStr != null) p[keyUriFor(currentFilter.mediaType.name)] =
+                        currentUriStr
+                    else p.remove(keyUriFor(currentFilter.mediaType.name))
+                    if (currentIdStr != null) p[keyIdFor(currentFilter.mediaType.name)] =
+                        currentIdStr
+                    else p.remove(keyIdFor(currentFilter.mediaType.name))
 
                     // Último filtro usado
-                    p[KEY_LAST_FILTER] = currentFilter.name
+                    p[KEY_LAST_FILTER] = currentFilter.mediaType.name
 
                     // Legacy (retro-compat)
                     p[KEY_INDEX] = safeIndex
                     if (currentUriStr != null) p[KEY_CURRENT_URI] = currentUriStr
                     else p.remove(KEY_CURRENT_URI)
-                    p[KEY_FILTER] = currentFilter.name
+                    p[KEY_FILTER] = currentFilter.mediaType.name
                     p[KEY_PENDING] = pendingTrash.map(Uri::toString).toSet()
 
                     // Tutorial
@@ -405,7 +521,7 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
         }.onSuccess {
             android.util.Log.d(
                 "SwipeClean/VM",
-                "persistNow() ✓ filter=$currentFilter, index=$safeIndex, tutorial=$tutorialFlag"
+                "persistNow() ✓ filter=${currentFilter.mediaType}, index=$safeIndex, tutorial=$tutorialFlag"
             )
         }.onFailure {
             android.util.Log.e("SwipeClean/VM", "persistNow() ✗ error", it)
@@ -426,20 +542,19 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
         runCatching {
             dataStore.edit { p ->
                 // Por filtro actual
-                p[keyIndexFor(currentFilter.name)] = safeIndex
-                if (currentUriStr != null) p[keyUriFor(currentFilter.name)] = currentUriStr
-                else p.remove(keyUriFor(currentFilter.name))
-                if (currentIdStr != null) p[keyIdFor(currentFilter.name)] = currentIdStr
-                else p.remove(keyIdFor(currentFilter.name))
+                p[keyIndexFor(currentFilter.mediaType.name)] = safeIndex  // línea 545
+                if (currentUriStr != null) p[keyUriFor(currentFilter.mediaType.name)] = currentUriStr  // línea 546
+                else p.remove(keyUriFor(currentFilter.mediaType.name))  // línea 547
+                if (currentIdStr != null) p[keyIdFor(currentFilter.mediaType.name)] = currentIdStr  // línea 548
+                else p.remove(keyIdFor(currentFilter.mediaType.name))  // línea 549
 
-                // Último filtro usado
-                p[KEY_LAST_FILTER] = currentFilter.name
+                p[KEY_LAST_FILTER] = currentFilter.mediaType.name  // línea 552
 
                 // Legacy (retro-compat)
                 p[KEY_INDEX] = safeIndex
                 if (currentUriStr != null) p[KEY_CURRENT_URI] = currentUriStr
                 else p.remove(KEY_CURRENT_URI)
-                p[KEY_FILTER] = currentFilter.name
+                p[KEY_FILTER] = currentFilter.mediaType.name  // línea 558
                 p[KEY_PENDING] = pendingTrash.map(Uri::toString).toSet()
 
                 // Tutorial
@@ -458,6 +573,9 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
             android.util.Log.e("SwipeClean/VM", "persistAsync() ✗ error", it)
         }
     }
+
+
+
 
     // ---------------------------
     // Progreso de limpieza

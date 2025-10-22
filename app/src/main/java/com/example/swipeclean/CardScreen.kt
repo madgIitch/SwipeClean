@@ -58,7 +58,7 @@ fun CardScreen(vm: GalleryViewModel) {
 
     val items by vm.items.collectAsState()
     val index by vm.index.collectAsState()
-    val filter by vm.filter.collectAsState()
+    val filter by vm.advancedFilter.collectAsState()
     val ctx = LocalContext.current
 
     val totalDeletedBytes by vm.totalDeletedBytes.collectAsState()
@@ -186,8 +186,8 @@ fun CardScreen(vm: GalleryViewModel) {
                     }
                     reviewLauncher.launch(intent)
                 },
-                currentFilter = filter,
-                onFilterChange = { Log.d(TAG_UI, "TopBar.onFilterChange($it)"); vm.setFilter(it) },
+                currentFilter = vm.advancedFilter.collectAsState().value,
+                onFilterChange = { vm.setAdvancedFilter(it) },
                 onCounterClick = {
                     if (items.isEmpty()) return@FancyTopBar
                     val ids = LongArray(items.size) { i -> extractIdFromUri(items[i].uri) }
@@ -351,5 +351,13 @@ private fun toKindInt(uri: Uri): Int {
         path.contains("/images/") || path.contains("media/external/images") -> 1
         path.contains("/video/")  || path.contains("media/external/video")  -> 2
         else -> 1
+    }
+}
+
+private fun formatBytes(bytes: Long): String {
+    return when {
+        bytes < 1024 -> "$bytes B"
+        bytes < 1024 * 1024 -> "${bytes / 1024} KB"
+        else -> "${bytes / (1024 * 1024)} MB"
     }
 }

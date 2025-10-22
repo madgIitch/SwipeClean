@@ -66,7 +66,7 @@ class MainActivity : ComponentActivity() {
         Log.d(TAG_PERMS, "RequestMultiplePermissions → $result (grantedNow=$grantedNow)")
         if (grantedNow) {
             // Importante: VM no debe resetear índice; restaura por currentUri/index.
-            vm.load(MediaFilter.ALL)
+            vm.load()
         }
     }
 
