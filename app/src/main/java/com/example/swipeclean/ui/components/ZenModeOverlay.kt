@@ -1,39 +1,29 @@
 package com.example.swipeclean.ui.components
 
-import android.content.Context
-import android.media.MediaPlayer
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.TimerOff
 import androidx.compose.material.icons.filled.Vibration
-import androidx.compose.material.icons.filled.VolumeOff
-import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.swipeclean.R
 import com.example.swipeclean.zen.HapticsIntensity
 import com.example.swipeclean.zen.ZenAudioTrack
 import com.example.swipeclean.zen.ZenMode
-import kotlinx.coroutines.delay
 
 // Paleta de colores Zen
 val ZenPurple = Color(0xFF6B5B95)
@@ -71,14 +61,16 @@ private val zenMessages = listOf(
     "Tu paz empieza en el carrete."
 )
 
-
 @Composable
 fun ZenModeOverlay(
     zenMode: ZenMode,
     showMessage: Boolean,
+    timerProgress: Float,  // ← Nuevo parámetro
+    timerRemaining: Long,  // ← Nuevo parámetro
     onDismiss: () -> Unit,
     onAudioTrackChange: (ZenAudioTrack) -> Unit,
-    onHapticsIntensityChange: (HapticsIntensity) -> Unit,  // ← Nuevo callback
+    onHapticsIntensityChange: (HapticsIntensity) -> Unit,
+    onTimerDurationChange: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
     // Seleccionar un mensaje aleatorio al activar ZenMode
@@ -106,8 +98,6 @@ fun ZenModeOverlay(
                     )
             )
 
-
-
             // Mensaje motivacional usando la lista
             AnimatedVisibility(
                 visible = showMessage,
@@ -115,23 +105,22 @@ fun ZenModeOverlay(
                 exit = fadeOut(animationSpec = tween(400)) + scaleOut(targetScale = 0.8f),
                 modifier = Modifier.align(Alignment.Center)
             ) {
-
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(16.dp),
-                        modifier = Modifier.padding(32.dp)
-                    ) {
-                        Text(
-                            text = currentMessage,  // ← USAR EL MENSAJE DE LA LISTA
-                            style = MaterialTheme.typography.headlineMedium,
-                            color = Color.White,
-                            fontWeight = FontWeight.Light,
-                            textAlign = TextAlign.Center
-                        )
-                    }
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.padding(32.dp)
+                ) {
+                    Text(
+                        text = currentMessage,
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = Color.White,
+                        fontWeight = FontWeight.Light,
+                        textAlign = TextAlign.Center
+                    )
+                }
             }
 
-            // Botón para cambiar intensidad de hápticos
+            // Botón para cambiar intensidad de hápticos (izquierda)
             IconButton(
                 onClick = {
                     val nextIntensity = when(zenMode.hapticsIntensity) {
@@ -143,14 +132,13 @@ fun ZenModeOverlay(
                     onHapticsIntensityChange(nextIntensity)
                 },
                 modifier = Modifier
-                    .align(Alignment.BottomStart)  // Esquina opuesta al botón de audio
+                    .align(Alignment.BottomStart)
                     .padding(16.dp)
             ) {
                 Icon(
                     imageVector = when(zenMode.hapticsIntensity) {
-                        HapticsIntensity.OFF -> Icons.Default.VolumeOff  // Reutilizar icono de volumen
-                        HapticsIntensity.LOW, HapticsIntensity.MEDIUM, HapticsIntensity.HIGH ->
-                            Icons.Default.Vibration  // Si existe, o usa otro
+                        HapticsIntensity.OFF -> Icons.Default.Vibration
+                        else -> Icons.Default.Vibration
                     },
                     contentDescription = "Cambiar intensidad de hápticos",
                     tint = Color.White,
@@ -165,6 +153,72 @@ fun ZenModeOverlay(
                 )
             }
 
+            // Botón de temporizador (centro inferior) con progreso
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(16.dp)
+            ) {
+                // Indicador de progreso circular
+                if (zenMode.timerDuration > 0 && timerRemaining > 0) {
+                    CircularProgressIndicator(
+                        progress = { timerProgress },
+                        modifier = Modifier.size(56.dp),
+                        color = Color.White.copy(alpha = 0.5f),
+                        strokeWidth = 3.dp,
+                    )
+                }
+
+                // Botón del temporizador
+                IconButton(
+                    onClick = {
+                        val nextDuration = when(zenMode.timerDuration) {
+                            0 -> 5
+                            5 -> 10
+                            10 -> 15
+                            15 -> 0
+                            else -> 0
+                        }
+                        onTimerDurationChange(nextDuration)
+                    }
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            imageVector = when(zenMode.timerDuration) {
+                                0 -> Icons.Default.TimerOff
+                                else -> Icons.Default.Timer
+                            },
+                            contentDescription = "Configurar temporizador",
+                            tint = Color.White,
+                            modifier = Modifier.alpha(
+                                when(zenMode.timerDuration) {
+                                    0 -> 0.3f
+                                    5 -> 0.6f
+                                    10 -> 0.8f
+                                    15 -> 1.0f
+                                    else -> 0.3f
+                                }
+                            )
+                        )
+
+                        // Mostrar tiempo restante
+                        if (zenMode.timerDuration > 0 && timerRemaining > 0) {
+                            val minutes = (timerRemaining / 60000).toInt()
+                            val seconds = ((timerRemaining % 60000) / 1000).toInt()
+                            Text(
+                                text = String.format("%d:%02d", minutes, seconds),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.White,
+                                fontSize = 10.sp
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Botón para cambiar audio (derecha)
             IconButton(
                 onClick = {
                     onAudioTrackChange(zenMode.audioTrack.next())
@@ -175,9 +229,9 @@ fun ZenModeOverlay(
             ) {
                 Icon(
                     imageVector = if (zenMode.audioTrack == ZenAudioTrack.NONE)
-                        Icons.AutoMirrored.Filled.VolumeOff  // ← Cambiar aquí
+                        Icons.AutoMirrored.Filled.VolumeOff
                     else
-                        Icons.AutoMirrored.Filled.VolumeUp,  // ← Y aquí
+                        Icons.AutoMirrored.Filled.VolumeUp,
                     contentDescription = "Cambiar audio",
                     tint = Color.White
                 )

@@ -8,8 +8,11 @@ data class ZenMode(
     val volume: Float = 1f,
     val hapticsIntensity: HapticsIntensity = HapticsIntensity.MEDIUM,
     val showMotivationalMessages: Boolean = true,
-    val particlesEnabled: Boolean = false
+    val particlesEnabled: Boolean = true,
+    val timerDuration: Int = 0, // 0 = sin temporizador, 5, 10, 15 minutos
+    val timerStartTime: Long = 0L
 )
+
 enum class ZenAudioTrack(val rawResId: Int, val displayName: String) {
     RAIN(R.raw.zen_rain, "Lluvia"),
     OCEAN(R.raw.zen_ocean, "Olas del Mar"),

@@ -43,10 +43,15 @@ import kotlinx.coroutines.delay
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.media3.common.util.UnstableApi
 import kotlinx.coroutines.launch  // ← Agregar esta línea
+import com.example.swipeclean.zen.createZenNotificationChannel
+import com.example.swipeclean.zen.showTimerFinishedNotification
+
 
 private const val TAG_UI = "SwipeClean/UI"
 
+@androidx.annotation.OptIn(UnstableApi::class)
 @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -107,6 +112,10 @@ fun CardScreen(vm: GalleryViewModel) {
     val isHashing by vm.isHashing.collectAsState()
     val hashingProgress by vm.hashingProgress.collectAsState()
 
+    val timerProgress by zenViewModel.timerProgress.collectAsState()
+    val timerRemaining by zenViewModel.timerRemaining.collectAsState()
+    val context = LocalContext.current
+
     LaunchedEffect(items.size) { Log.d(TAG_UI, "items.size=${items.size}") }
     LaunchedEffect(index)      { Log.d(TAG_UI, "index=$index (items.size=${items.size})") }
     LaunchedEffect(filter)     { Log.d(TAG_UI, "filter=$filter") }
@@ -131,6 +140,26 @@ fun CardScreen(vm: GalleryViewModel) {
     // Agregar log para debugging
     LaunchedEffect(zenMode.isEnabled, zenPlayer) {
         Log.d(TAG_UI, "Zen Mode enabled: ${zenMode.isEnabled}, Player created: ${zenPlayer != null}")
+    }
+    LaunchedEffect(Unit) {
+        createZenNotificationChannel(context)  // ← Nombre correcto
+    }
+    // Monitorear finalización del temporizador
+    LaunchedEffect(timerProgress) {
+        if (timerProgress >= 1f && zenMode.timerDuration > 0) {
+            Log.d(TAG_UI, "Timer finished, showing notification")
+            showTimerFinishedNotification(context)
+
+            // Opcional: desactivar Zen Mode automáticamente
+            // zenViewModel.toggleZenMode(false)
+        }
+    }
+
+// Log de progreso (debugging)
+    LaunchedEffect(timerRemaining) {
+        if (timerRemaining > 0) {
+            Log.d(TAG_UI, "Timer remaining: ${timerRemaining / 1000}s")
+        }
     }
 
     // Compartir elemento actual (ACTION_SEND)
@@ -334,7 +363,10 @@ fun CardScreen(vm: GalleryViewModel) {
                                     },
                                     onSwipeDown = {
                                         val newState = !zenMode.isEnabled
-                                        Log.d(TAG_UI, "onSwipeDown → toggle ZenMode: ${zenMode.isEnabled} → $newState")
+                                        Log.d(
+                                            TAG_UI,
+                                            "onSwipeDown → toggle ZenMode: ${zenMode.isEnabled} → $newState"
+                                        )
                                         zenViewModel.toggleZenMode(newState)
                                     }
                                 ) {
@@ -372,20 +404,29 @@ fun CardScreen(vm: GalleryViewModel) {
                                 ZenModeOverlay(
                                     zenMode = zenMode,
                                     showMessage = showZenMessage,
+                                    timerProgress = timerProgress,      // ← AÑADIR
+                                    timerRemaining = timerRemaining,    // ← AÑADIR
                                     onDismiss = {
                                         Log.d(TAG_UI, "ZenMode dismissed")
                                         zenViewModel.toggleZenMode(false)
                                     },
                                     onAudioTrackChange = { track ->
-                                        Log.d(TAG_UI, "Audio track changed to: ${track.displayName}")
+                                        Log.d(
+                                            TAG_UI,
+                                            "Audio track changed to: ${track.displayName}"
+                                        )
                                         zenViewModel.setAudioTrack(track)
                                     },
                                     onHapticsIntensityChange = { intensity ->
                                         Log.d(TAG_UI, "Haptics intensity changed to: $intensity")
                                         zenViewModel.setHapticsIntensity(intensity)
+                                    },
+                                    onTimerDurationChange = { duration ->
+                                        Log.d(TAG_UI, "Timer duration changed to: $duration min")
+                                        zenViewModel.setTimerDuration(duration)
                                     }
                                 )
-                            } else {
+                            }else {
                                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                     Text("Cargando…")
                                 }
