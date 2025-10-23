@@ -26,8 +26,9 @@ private fun isVideoItem(item: MediaItem): Boolean {
 @Composable
 fun MediaCard(
     item: MediaItem?,
-    isZenMode: Boolean = false,  // ← AÑADIR ESTE PARÁMETRO
+    isZenMode: Boolean = false,
     onSwipeEnabledChange: (Boolean) -> Unit = {},
+    onLongPress: () -> Unit = {},  // ← Nuevo callback
     modifier: Modifier = Modifier.fillMaxSize()
 ) {
     if (item == null) {
@@ -39,27 +40,30 @@ fun MediaCard(
     val isVideo = isVideoItem(item)
     Log.d(TAG_MEDIA, "render → uri=${item.uri}, mime=${item.mimeType}, isVideo=$isVideo")
 
-    if (isVideo) {
-        Log.d(TAG_MEDIA, "Video mode → swipeEnabled=true")
-        onSwipeEnabledChange(true)
-        VideoPlayer(
-            uri = item.uri,
-            modifier = modifier,
-            autoPlay = true,
-            loop = true,
-            mute = false,
-            showControls = true
-        )
-    } else {
-        Log.d(TAG_MEDIA, "Image mode (ZoomableImage)")
-        ZoomableImage(
-            item = item,
-            modifier = modifier,
-            isZenMode = isZenMode,  // Ahora está disponible
-            onZoomingChange = { zooming ->
-                Log.d(TAG_MEDIA, "onZoomingChange(zooming=$zooming) → swipeEnabled=${!zooming}")
-                onSwipeEnabledChange(!zooming)
-            }
-        )
+    Box(modifier = modifier) {
+        if (isVideo) {
+            Log.d(TAG_MEDIA, "Video mode → swipeEnabled=true")
+            onSwipeEnabledChange(true)
+            VideoPlayer(
+                uri = item.uri,
+                modifier = Modifier.fillMaxSize(),
+                autoPlay = true,
+                loop = true,
+                mute = false,
+                showControls = true
+            )
+        } else {
+            Log.d(TAG_MEDIA, "Image mode (ZoomableImage)")
+            ZoomableImage(
+                item = item,
+                modifier = Modifier.fillMaxSize(),
+                isZenMode = isZenMode,
+                onZoomingChange = { zooming ->
+                    Log.d(TAG_MEDIA, "onZoomingChange(zooming=$zooming) → swipeEnabled=${!zooming}")
+                    onSwipeEnabledChange(!zooming)
+                },
+                onLongPress = onLongPress  // ← Pasar callback
+            )
+        }
     }
 }

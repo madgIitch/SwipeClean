@@ -17,6 +17,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -40,6 +41,9 @@ import com.example.swipeclean.zen.rememberZenAudioPlayer
 import com.madglitch.swipeclean.GalleryViewModel
 import kotlinx.coroutines.delay
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch  // ← Agregar esta línea
 
 private const val TAG_UI = "SwipeClean/UI"
 
@@ -56,6 +60,9 @@ fun CardScreen(vm: GalleryViewModel) {
         Log.d(TAG_UI, "zenMode state: isEnabled=${zenMode.isEnabled}, haptics=${zenMode.hapticsIntensity}")
     }
     var showZenMessage by rememberSaveable { mutableStateOf(false) }
+    var showMetadata by remember { mutableStateOf(false) }
+    var currentMetadata by remember { mutableStateOf<MediaMetadata?>(null) }
+    val scope = rememberCoroutineScope()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
 
 
@@ -311,7 +318,7 @@ fun CardScreen(vm: GalleryViewModel) {
 
                             if (itemAt != null) {
                                 SwipeableCard(
-                                    swipeEnabled = swipeEnabled,
+                                    swipeEnabled = swipeEnabled && !showMetadata,  // ← Deshabilitar swipe cuando se muestra metadata
                                     zenMode = zenMode,
                                     onSwipeLeft = {
                                         Log.d(TAG_UI, "onSwipeLeft → vm.markForTrash()")
@@ -337,9 +344,31 @@ fun CardScreen(vm: GalleryViewModel) {
                                         onSwipeEnabledChange = { enabled ->
                                             Log.d(TAG_UI, "onSwipeEnabledChange($enabled)")
                                             swipeEnabled = enabled
+                                        },
+                                        onLongPress = {
+                                            Log.d(TAG_UI, "Long press → loading metadata")
+                                            scope.launch {  // ← Cambiar de viewModelScope a scope
+                                                currentMetadata = vm.getMediaMetadata(itemAt)
+                                                showMetadata = true
+                                            }
                                         }
                                     )
                                 }
+
+                                // Overlay de metadatos
+                                if (showMetadata && currentMetadata != null) {
+                                    MetadataOverlay(
+                                        metadata = currentMetadata!!,
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .pointerInput(Unit) {
+                                                detectTapGestures {
+                                                    showMetadata = false
+                                                }
+                                            }
+                                    )
+                                }
+
                                 ZenModeOverlay(
                                     zenMode = zenMode,
                                     showMessage = showZenMessage,

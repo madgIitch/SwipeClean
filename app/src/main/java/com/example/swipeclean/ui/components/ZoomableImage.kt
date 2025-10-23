@@ -23,6 +23,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.toSize
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.swipeclean.MediaItem
@@ -44,9 +45,10 @@ fun ZoomableImage(
     minScale: Float = 1f,
     maxScale: Float = 5f,
     onZoomingChange: (Boolean) -> Unit = {},
-    autoResetOnRelease: Boolean = true,
-    snapEps: Float = 0.15f,
-    isZenMode: Boolean = false  // ← NUEVO: para fondo transparente en ZenMode
+    autoResetOnRelease: Boolean = false,
+    snapEps: Float = 0.05f,
+    isZenMode: Boolean = false,
+    onLongPress: () -> Unit = {}  // ← Nuevo parámetro
 ) {
     key(item.uri) {
         val scope = rememberCoroutineScope()
@@ -65,11 +67,48 @@ fun ZoomableImage(
 
         fun clampScale(s: Float) = s.coerceIn(minScale, maxScale)
 
+        fun clampOffset(offset: Offset, scale: Float, containerSize: androidx.compose.ui.geometry.Size): Offset {
+            if (scale <= 1f) return Offset.Zero
+
+            // Calcular máximo desplazamiento permitido
+            val maxX = (containerSize.width * (scale - 1f)) / 2f
+            val maxY = (containerSize.height * (scale - 1f)) / 2f
+
+            return Offset(
+                x = offset.x.coerceIn(-maxX, maxX),
+                y = offset.y.coerceIn(-maxY, maxY)
+            )
+        }
+
         suspend fun animateTo(scale: Float, offset: Offset) {
             cancelRunning()
-            scope.launch { scaleA.animateTo(scale, spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = 0.9f)) }
-            scope.launch { offsetXA.animateTo(offset.x, spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = 0.9f)) }
-            scope.launch { offsetYA.animateTo(offset.y, spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = 0.9f)) }
+            scope.launch {
+                scaleA.animateTo(
+                    scale,
+                    spring(
+                        stiffness = Spring.StiffnessLow,  // ← Cambiar de MediumLow a Low
+                        dampingRatio = 0.9f
+                    )
+                )
+            }
+            scope.launch {
+                offsetXA.animateTo(
+                    offset.x,
+                    spring(
+                        stiffness = Spring.StiffnessLow,  // ← Cambiar de MediumLow a Low
+                        dampingRatio = 0.9f
+                    )
+                )
+            }
+            scope.launch {
+                offsetYA.animateTo(
+                    offset.y,
+                    spring(
+                        stiffness = Spring.StiffnessLow,  // ← Cambiar de MediumLow a Low
+                        dampingRatio = 0.9f
+                    )
+                )
+            }
         }
 
         LaunchedEffect(Unit) {
@@ -115,6 +154,9 @@ fun ZoomableImage(
                             offsetRaw + pan
                         }
 
+                        // ← NUEVO: Aplicar límites
+                        offsetRaw = clampOffset(offsetRaw, scaleRaw, size.toSize())
+
                         // Actualiza render al vuelo (snap, no animación)
                         scope.launch {
                             scaleA.snapTo(scaleRaw)
@@ -150,6 +192,10 @@ fun ZoomableImage(
                 // 3) Doble-tap con animación
                 .pointerInput(item.uri) {
                     detectTapGestures(
+                        onLongPress = {
+                            Log.d(TAG_ZOOM, "Long press detected")
+                            onLongPress()  // ← Invocar callback
+                        },
                         onDoubleTap = {
                             scope.launch {
                                 if (scaleA.value <= 1f) {

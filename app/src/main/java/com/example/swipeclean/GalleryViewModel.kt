@@ -29,6 +29,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import android.content.ContentUris
+import com.example.swipeclean.MediaMetadata
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ViewModel
@@ -687,6 +688,67 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun current(): MediaItem? = _items.value.getOrNull(_index.value)
+
+    suspend fun getMediaMetadata(item: MediaItem): MediaMetadata? {
+        return withContext(Dispatchers.IO) {
+            try {
+                val ctx = getApplication<Application>().applicationContext
+                val projection = arrayOf(
+                    MediaStore.MediaColumns.DISPLAY_NAME,
+                    MediaStore.MediaColumns.SIZE,
+                    MediaStore.MediaColumns.DATE_TAKEN,
+                    MediaStore.MediaColumns.WIDTH,
+                    MediaStore.MediaColumns.HEIGHT,
+                    MediaStore.Images.Media.LATITUDE,
+                    MediaStore.Images.Media.LONGITUDE,
+                    MediaStore.Video.Media.DURATION
+                )
+
+                val uri = if (item.isVideo) {
+                    MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+                } else {
+                    MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+                }
+
+                ctx.contentResolver.query(
+                    ContentUris.withAppendedId(uri, item.id),
+                    projection,
+                    null,
+                    null,
+                    null
+                )?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        val nameIdx = cursor.getColumnIndex(MediaStore.MediaColumns.DISPLAY_NAME)
+                        val sizeIdx = cursor.getColumnIndex(MediaStore.MediaColumns.SIZE)
+                        val dateIdx = cursor.getColumnIndex(MediaStore.MediaColumns.DATE_TAKEN)
+                        val widthIdx = cursor.getColumnIndex(MediaStore.MediaColumns.WIDTH)
+                        val heightIdx = cursor.getColumnIndex(MediaStore.MediaColumns.HEIGHT)
+                        val latIdx = cursor.getColumnIndex(MediaStore.Images.Media.LATITUDE)
+                        val lonIdx = cursor.getColumnIndex(MediaStore.Images.Media.LONGITUDE)
+                        val durIdx = cursor.getColumnIndex(MediaStore.Video.Media.DURATION)
+
+                        val width = if (widthIdx >= 0) cursor.getInt(widthIdx) else null
+                        val height = if (heightIdx >= 0) cursor.getInt(heightIdx) else null
+                        val resolution = if (width != null && height != null) "${width}x${height}" else null
+
+                        MediaMetadata(
+                            fileName = if (nameIdx >= 0) cursor.getString(nameIdx) else "Unknown",
+                            fileSize = if (sizeIdx >= 0) cursor.getLong(sizeIdx) else 0L,
+                            dateTaken = if (dateIdx >= 0) cursor.getLong(dateIdx) else item.dateTaken,
+                            resolution = resolution,
+                            mimeType = item.mimeType,
+                            latitude = if (latIdx >= 0 && !cursor.isNull(latIdx)) cursor.getDouble(latIdx) else null,
+                            longitude = if (lonIdx >= 0 && !cursor.isNull(lonIdx)) cursor.getDouble(lonIdx) else null,
+                            duration = if (durIdx >= 0 && !cursor.isNull(durIdx)) cursor.getLong(durIdx) else null
+                        )
+                    } else null
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("SwipeClean/Metadata", "Error obteniendo metadatos", e)
+                null
+            }
+        }
+    }
 
     // ---------------------------
     // Navegación (wrap-around)
