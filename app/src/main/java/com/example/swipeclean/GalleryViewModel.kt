@@ -29,6 +29,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import android.content.ContentUris
+import android.util.Log
 import com.example.swipeclean.MediaMetadata
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -945,7 +946,6 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
         if (confirmed.isEmpty()) return
 
         viewModelScope.launch {
-            // Calcular tamaño de archivos confirmados
             val deletedBytes = calculateTotalSize(confirmed)
 
             val set = confirmed.toSet()
@@ -955,16 +955,23 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
 
             loadInternal(currentFilter)
 
+            // Verificar que las URIs realmente fueron eliminadas
+            val stillExist = _items.value.filter { it.uri in set }
+            if (stillExist.isNotEmpty()) {
+                Log.w("GalleryViewModel", "${stillExist.size} items still exist after deletion")
+                // Revertir las que no se eliminaron
+                pendingTrash.addAll(stillExist.map { it.uri })
+            }
+
             val n = _items.value.size
             _index.value = if (n == 0) 0 else ((_index.value % n) + n) % n
 
-            // Actualizar estadísticas
+            // Solo actualizar estadísticas con archivos realmente eliminados
+            val actuallyDeleted = confirmed.size - stillExist.size
             _totalDeletedBytes.value += deletedBytes
-            _totalDeletedCount.value += confirmed.size
+            _totalDeletedCount.value += actuallyDeleted
 
-            // Actualizar progreso
             updateCleaningProgress()
-
             persistAsync()
         }
     }
@@ -995,15 +1002,30 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
         if (pendingTrash.isEmpty()) return
 
         viewModelScope.launch {
+            val successfullyDeleted = mutableListOf<Uri>()
             withContext(Dispatchers.IO) {
                 val cr = context.contentResolver
                 val it = pendingTrash.iterator()
                 while (it.hasNext()) {
                     val uri = it.next()
-                    runCatching { cr.delete(uri, null, null) }
+                    runCatching {
+                        val deleted = cr.delete(uri, null, null)
+                        if (deleted > 0) {
+                            successfullyDeleted.add(uri)
+                        }
+                    }
                     it.remove()
                 }
             }
+
+            // Solo actualizar estadísticas con archivos realmente eliminados
+            if (successfullyDeleted.isNotEmpty()) {
+                val deletedBytes = calculateTotalSize(successfullyDeleted)
+                _totalDeletedBytes.value += deletedBytes
+                _totalDeletedCount.value += successfullyDeleted.size
+                updateCleaningProgress()
+            }
+
             history.clear()
             stagedForReview.clear()
             loadInternal(currentFilter)

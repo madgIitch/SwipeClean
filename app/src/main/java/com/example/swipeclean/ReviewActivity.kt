@@ -6,6 +6,7 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
 import android.provider.OpenableColumns
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.IntentSenderRequest
@@ -21,7 +22,6 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.ripple.rememberRipple
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshots.SnapshotStateList
@@ -39,11 +39,15 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.swipeclean.ui.theme.SwipeCleanTheme
 import java.util.Locale
+import android.content.ContentUris
+import androidx.annotation.RequiresApi
 
 class ReviewActivity : ComponentActivity() {
 
     private lateinit var selected: SnapshotStateList<Uri>
+    private lateinit var trashLauncher: androidx.activity.result.ActivityResultLauncher<IntentSenderRequest>
 
+    @RequiresApi(Build.VERSION_CODES.R)
     @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -56,15 +60,21 @@ class ReviewActivity : ComponentActivity() {
                 intent.getParcelableArrayListExtra(EXTRA_PENDING_URIS) ?: arrayListOf()
             }
 
-        // Tras el diálogo del sistema, devolvemos las URIs confirmadas
-        val trashLauncher = registerForActivityResult(
+        // Tras el diálogo del sistema, devolvemos las URIs confirmadas SOLO si el usuario aprobó
+        trashLauncher = registerForActivityResult(
             ActivityResultContracts.StartIntentSenderForResult()
-        ) { _ ->
-            val data = Intent().apply {
-                putParcelableArrayListExtra(EXTRA_CONFIRMED_URIS, ArrayList(selected))
+        ) { result ->
+            if (result.resultCode == RESULT_OK) {
+                // Usuario aprobó la eliminación
+                val data = Intent().apply {
+                    putParcelableArrayListExtra(EXTRA_CONFIRMED_URIS, ArrayList(selected))
+                }
+                setResult(RESULT_OK, data)
+                finish()
+            } else {
+                // Usuario canceló, no hacer nada
+                Log.d("ReviewActivity", "User cancelled trash dialog")
             }
-            setResult(RESULT_OK, data)
-            finish()
         }
 
         setContent {
@@ -174,28 +184,39 @@ class ReviewActivity : ComponentActivity() {
                                         onClick = {
                                             val toTrash = selected.toList()
                                             if (toTrash.isEmpty()) {
-                                                setResult(RESULT_CANCELED); finish(); return@Button
-                                            }
-                                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                                                val pi = MediaStore.createTrashRequest(
-                                                    contentResolver,
-                                                    ArrayList(toTrash),
-                                                    true
-                                                )
-                                                trashLauncher.launch(
-                                                    IntentSenderRequest.Builder(pi.intentSender).build()
-                                                )
-                                            } else {
-                                                // API < 30: borrado directo
-                                                val cr = contentResolver
-                                                toTrash.forEach { uri ->
-                                                    try { cr.delete(uri, null, null) } catch (_: Exception) {}
-                                                }
-                                                val data = Intent().apply {
-                                                    putParcelableArrayListExtra(EXTRA_CONFIRMED_URIS, ArrayList(toTrash))
-                                                }
-                                                setResult(RESULT_OK, data)
+                                                setResult(RESULT_CANCELED)
                                                 finish()
+                                                return@Button
+                                            }
+
+                                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                                try {
+                                                    // Convertir URIs genéricas a URIs específicas de tipo
+                                                    val convertedUris = toTrash.mapNotNull { convertToMediaUri(it) }
+
+                                                    if (convertedUris.isEmpty()) {
+                                                        Log.e("ReviewActivity", "No valid media URIs to delete")
+                                                        setResult(RESULT_CANCELED)
+                                                        finish()
+                                                        return@Button
+                                                    }
+
+                                                    val pi = MediaStore.createTrashRequest(
+                                                        contentResolver,
+                                                        ArrayList(convertedUris),
+                                                        true
+                                                    )
+                                                    trashLauncher.launch(
+                                                        IntentSenderRequest.Builder(pi.intentSender).build()
+                                                    )
+                                                } catch (e: Exception) {
+                                                    Log.e("ReviewActivity", "Failed to create trash request", e)
+                                                    // Fallback a borrado directo con manejo de RecoverableSecurityException
+                                                    handleDirectDeletion(toTrash)
+                                                }
+                                            } else {
+                                                // API < 30: borrado directo con manejo de RecoverableSecurityException
+                                                handleDirectDeletion(toTrash)
                                             }
                                         },
                                         enabled = selected.isNotEmpty(),
@@ -241,8 +262,7 @@ class ReviewActivity : ComponentActivity() {
                     }
                 }
             }
-        }
-    }
+        }    }
 
     // ---- Helpers ----
     private fun sumSizesSafely(uris: List<Uri>): Long {
@@ -271,6 +291,94 @@ class ReviewActivity : ComponentActivity() {
             bytes >= kb -> String.format(Locale.getDefault(), "%.2f KB", bytes / kb)
             else -> "$bytes B"
         }
+    }
+
+    private fun convertToMediaUri(uri: Uri): Uri? {
+        return try {
+            val id = ContentUris.parseId(uri)
+            contentResolver.query(
+                uri,
+                arrayOf(MediaStore.Files.FileColumns.MEDIA_TYPE),
+                null,
+                null,
+                null
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val mediaType = cursor.getInt(0)
+                    when (mediaType) {
+                        MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE ->
+                            ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id)
+                        MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO ->
+                            ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, id)
+                        else -> {
+                            Log.w("ReviewActivity", "Unknown media type: $mediaType for $uri")
+                            null
+                        }
+                    }
+                } else null
+            }
+        } catch (e: Exception) {
+            Log.e("ReviewActivity", "Failed to convert URI: $uri", e)
+            null
+        }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.R)
+    private fun handleDirectDeletion(toTrash: List<Uri>) {
+        val cr = contentResolver
+        val successfullyDeleted = mutableListOf<Uri>()
+        val needsPermission = mutableListOf<Uri>()
+
+        toTrash.forEach { uri ->
+            try {
+                val deleted = cr.delete(uri, null, null)
+                if (deleted > 0) {
+                    successfullyDeleted.add(uri)
+                } else {
+                    Log.w("ReviewActivity", "Failed to delete $uri (returned 0)")
+                }
+            } catch (e: SecurityException) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+                    e is android.app.RecoverableSecurityException) {
+                    Log.d("ReviewActivity", "RecoverableSecurityException for $uri")
+                    needsPermission.add(uri)
+                } else {
+                    Log.e("ReviewActivity", "Failed to delete $uri", e)
+                }
+            } catch (e: Exception) {
+                Log.e("ReviewActivity", "Failed to delete $uri", e)
+            }
+        }
+
+        // Si hay archivos que necesitan permiso, solicitar mediante diálogo
+        if (needsPermission.isNotEmpty() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            try {
+                val convertedNeedsPermission = needsPermission.mapNotNull { convertToMediaUri(it) }
+                if (convertedNeedsPermission.isNotEmpty()) {
+                    val pi = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        MediaStore.createTrashRequest(cr, convertedNeedsPermission, true)
+                    } else {
+                        MediaStore.createDeleteRequest(cr, convertedNeedsPermission)
+                    }
+                    selected.clear()
+                    selected.addAll(needsPermission)
+                    trashLauncher.launch(IntentSenderRequest.Builder(pi.intentSender).build())
+                    return
+                }
+            } catch (e: Exception) {
+                Log.e("ReviewActivity", "Failed to create delete request", e)
+            }
+        }
+
+        finishWithResult(successfullyDeleted)
+    }
+
+    private fun finishWithResult(successfullyDeleted: List<Uri>) {
+        val data = Intent().apply {
+            putParcelableArrayListExtra(EXTRA_CONFIRMED_URIS, ArrayList(successfullyDeleted))
+        }
+        setResult(RESULT_OK, data)
+        finish()
     }
 }
 
