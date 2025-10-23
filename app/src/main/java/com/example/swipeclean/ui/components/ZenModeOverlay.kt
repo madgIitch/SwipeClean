@@ -8,6 +8,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.Timer10
+import androidx.compose.material.icons.filled.Timer3
 import androidx.compose.material.icons.filled.TimerOff
 import androidx.compose.material.icons.filled.Vibration
 import androidx.compose.material3.*
@@ -17,13 +19,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.swipeclean.R
 import com.example.swipeclean.zen.HapticsIntensity
 import com.example.swipeclean.zen.ZenAudioTrack
 import com.example.swipeclean.zen.ZenMode
+
 
 // Paleta de colores Zen
 val ZenPurple = Color(0xFF6B5B95)
@@ -172,32 +177,38 @@ fun ZenModeOverlay(
                 // Botón del temporizador
                 IconButton(
                     onClick = {
-                        val nextDuration = when(zenMode.timerDuration) {
-                            0 -> 5
-                            5 -> 10
-                            10 -> 15
-                            15 -> 0
+                        val nextDuration = when (zenMode.timerDuration) {
+                            0 -> 3   // ← CAMBIAR: de 5 a 3
+                            3 -> 5   // ← AÑADIR: nuevo paso
+                            5 -> 10  // ← CAMBIAR: de 10 a 10
+                            10 -> 0  // ← CAMBIAR: de 15 a 0
                             else -> 0
                         }
                         onTimerDurationChange(nextDuration)
-                    }
+                    },
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(16.dp)
                 ) {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Icon(
-                            imageVector = when(zenMode.timerDuration) {
-                                0 -> Icons.Default.TimerOff
-                                else -> Icons.Default.Timer
+                            painter = when(zenMode.timerDuration) {
+                                0 -> painterResource(R.drawable.ic_timeroff)
+                                3 -> painterResource(R.drawable.ic_timer3)  // ← Tu nuevo icono
+                                5 -> painterResource(R.drawable.ic_timer5)  // ← Tu nuevo icono
+                                10 -> painterResource(R.drawable.ic_timer10) // ← Tu nuevo icono
+                                else -> painterResource(R.drawable.ic_timer)
                             },
                             contentDescription = "Configurar temporizador",
                             tint = Color.White,
                             modifier = Modifier.alpha(
-                                when(zenMode.timerDuration) {
+                                when (zenMode.timerDuration) {
                                     0 -> 0.3f
-                                    5 -> 0.6f
-                                    10 -> 0.8f
-                                    15 -> 1.0f
+                                    3 -> 0.5f   // ← AÑADIR: opacidad para 3 min
+                                    5 -> 0.7f   // ← CAMBIAR: de 0.6f a 0.7f
+                                    10 -> 1.0f  // ← CAMBIAR: de 0.8f a 1.0f
                                     else -> 0.3f
                                 }
                             )

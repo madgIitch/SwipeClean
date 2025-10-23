@@ -58,7 +58,7 @@ class MainActivity : ComponentActivity() {
         // if (res.resultCode == RESULT_OK) vm.onTrashCommitted()
     }
 
-    // Lanzador de permisos
+    // Lanzador de permisos de galería
     private val permissionsLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { result ->
@@ -70,12 +70,23 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // ← NUEVO: Lanzador de permiso de notificaciones
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        Log.d(TAG_PERMS, "POST_NOTIFICATIONS permission granted: $isGranted")
+        if (!isGranted) {
+            Log.w(TAG_PERMS, "Notificaciones denegadas - el temporizador Zen no podrá notificar")
+        }
+    }
+
     @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Log.d(TAG_UI, "onCreate")
 
         requestGalleryPermissionsIfNeeded()
+        requestNotificationPermissionIfNeeded()  // ← NUEVO
 
         setContent {
             SwipeCleanTheme {
@@ -110,10 +121,9 @@ class MainActivity : ComponentActivity() {
                 Surface(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color.Transparent),  // ← Cambiar a transparente
-                    color = Color.Transparent  // ← Cambiar a transparente
+                        .background(Color.Transparent),
+                    color = Color.Transparent
                 ) {
-                    // Si CardScreen necesita lanzar un IntentSender del sistema, pásale ::launchIntentSender.
                     CardScreen(vm = vm)
                 }
             }
@@ -138,7 +148,6 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         super.onStop()
         Log.d(TAG_UI, "onStop → vm.persistNow()")
-        // Asegura que currentUri/index quedan guardados si el sistema mata la app
         vm.persistNow()
     }
 
@@ -160,7 +169,21 @@ class MainActivity : ComponentActivity() {
         } else {
             Log.d(TAG_PERMS, "ya concedidos, no se pide de nuevo")
         }
-        // Si ya estaban concedidos, NO dispares vm.load(): el ViewModel restaurará en su init.
+    }
+
+    // ← NUEVO: Solicitar permiso de notificaciones
+    private fun requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val hasPermission = isGranted(Manifest.permission.POST_NOTIFICATIONS)
+            Log.d(TAG_PERMS, "POST_NOTIFICATIONS permission: $hasPermission")
+
+            if (!hasPermission) {
+                Log.d(TAG_PERMS, "Solicitando permiso POST_NOTIFICATIONS")
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        } else {
+            Log.d(TAG_PERMS, "POST_NOTIFICATIONS no requerido (API < 33)")
+        }
     }
 
     private fun requiredGalleryPermissions(): Array<String> =
@@ -177,9 +200,6 @@ class MainActivity : ComponentActivity() {
         ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// System bars helper
-// ─────────────────────────────────────────────────────────────────────────────
 @Composable
 fun SetupSystemBars() {
     val sys = rememberSystemUiController()
