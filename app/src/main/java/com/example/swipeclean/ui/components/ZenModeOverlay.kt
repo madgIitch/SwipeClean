@@ -7,10 +7,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
-import androidx.compose.material.icons.filled.Timer
-import androidx.compose.material.icons.filled.Timer10
-import androidx.compose.material.icons.filled.Timer3
-import androidx.compose.material.icons.filled.TimerOff
 import androidx.compose.material.icons.filled.Vibration
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -19,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -29,7 +26,6 @@ import com.example.swipeclean.zen.HapticsIntensity
 import com.example.swipeclean.zen.ZenAudioTrack
 import com.example.swipeclean.zen.ZenMode
 
-
 // Paleta de colores Zen
 val ZenPurple = Color(0xFF6B5B95)
 val ZenGray = Color(0xFF8B8680)
@@ -37,47 +33,25 @@ val ZenLavender = Color(0xFFB8A9C9)
 val ZenSage = Color(0xFF9CAF88)
 val ZenSand = Color(0xFFD4C5B9)
 
-// Mensajes motivacionales
-private val zenMessages = listOf(
-    "Respira. Observa. Suelta la foto cuando estés listo.",
-    "Deja ir lo que ya no sirve.",
-    "Guarda solo lo que te inspira.",
-    "Cada decisión es un paso hacia la claridad.",
-    "Confía en tu intuición.",
-    "Menos es más.",
-    "Libera espacio, libera mente.",
-    "Lo simple también puede ser bello.",
-    "No todo lo que guardas te pertenece todavía.",
-    "Haz sitio para lo nuevo.",
-    "Suelta el ruido. Quédate con la esencia.",
-    "Cada swipe es una elección consciente.",
-    "La calma llega cuando dejas espacio para ella.",
-    "A veces limpiar también es recordar.",
-    "No tienes que conservarlo todo para que haya significado.",
-    "El orden exterior refleja tu orden interior.",
-    "Elimina sin prisa. Observa sin juicio.",
-    "Tu galería también merece respirar.",
-    "Desliza con intención, no con impulso.",
-    "El silencio visual también es arte.",
-    "Entre borrar y conservar hay un instante de claridad.",
-    "No acumules momentos, vive los que importan.",
-    "Suelta. No estás perdiendo, estás aligerando.",
-    "Cada foto que dejas ir abre un nuevo espacio mental.",
-    "Tu paz empieza en el carrete."
-)
-
 @Composable
 fun ZenModeOverlay(
     zenMode: ZenMode,
     showMessage: Boolean,
-    timerProgress: Float,  // ← Nuevo parámetro
-    timerRemaining: Long,  // ← Nuevo parámetro
+    timerProgress: Float,
+    timerRemaining: Long,
     onDismiss: () -> Unit,
     onAudioTrackChange: (ZenAudioTrack) -> Unit,
     onHapticsIntensityChange: (HapticsIntensity) -> Unit,
     onTimerDurationChange: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+
+    // Cargar mensajes desde resources
+    val zenMessages = remember {
+        context.resources.getStringArray(R.array.zen_messages).toList()
+    }
+
     // Seleccionar un mensaje aleatorio al activar ZenMode
     val currentMessage by remember(zenMode.isEnabled) {
         mutableStateOf(zenMessages.random())
@@ -103,7 +77,7 @@ fun ZenModeOverlay(
                     )
             )
 
-            // Mensaje motivacional usando la lista
+            // Mensaje motivacional
             AnimatedVisibility(
                 visible = showMessage,
                 enter = fadeIn(animationSpec = tween(400)) + scaleIn(initialScale = 0.8f),
@@ -125,7 +99,7 @@ fun ZenModeOverlay(
                 }
             }
 
-            // Botón para cambiar intensidad de hápticos (izquierda)
+            // Botón de hápticos (izquierda)
             IconButton(
                 onClick = {
                     val nextIntensity = when(zenMode.hapticsIntensity) {
@@ -141,10 +115,7 @@ fun ZenModeOverlay(
                     .padding(16.dp)
             ) {
                 Icon(
-                    imageVector = when(zenMode.hapticsIntensity) {
-                        HapticsIntensity.OFF -> Icons.Default.Vibration
-                        else -> Icons.Default.Vibration
-                    },
+                    imageVector = Icons.Default.Vibration,
                     contentDescription = "Cambiar intensidad de hápticos",
                     tint = Color.White,
                     modifier = Modifier.alpha(
@@ -158,7 +129,7 @@ fun ZenModeOverlay(
                 )
             }
 
-            // Botón de temporizador (centro inferior) con progreso
+            // Botón de temporizador (centro inferior)
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -178,17 +149,15 @@ fun ZenModeOverlay(
                 IconButton(
                     onClick = {
                         val nextDuration = when (zenMode.timerDuration) {
-                            0 -> 3   // ← CAMBIAR: de 5 a 3
-                            3 -> 5   // ← AÑADIR: nuevo paso
-                            5 -> 10  // ← CAMBIAR: de 10 a 10
-                            10 -> 0  // ← CAMBIAR: de 15 a 0
+                            0 -> 3
+                            3 -> 5
+                            5 -> 10
+                            10 -> 0
                             else -> 0
                         }
                         onTimerDurationChange(nextDuration)
                     },
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(16.dp)
+                    modifier = Modifier.align(Alignment.Center)
                 ) {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally
@@ -196,9 +165,9 @@ fun ZenModeOverlay(
                         Icon(
                             painter = when(zenMode.timerDuration) {
                                 0 -> painterResource(R.drawable.ic_timeroff)
-                                3 -> painterResource(R.drawable.ic_timer3)  // ← Tu nuevo icono
-                                5 -> painterResource(R.drawable.ic_timer5)  // ← Tu nuevo icono
-                                10 -> painterResource(R.drawable.ic_timer10) // ← Tu nuevo icono
+                                3 -> painterResource(R.drawable.ic_timer3)
+                                5 -> painterResource(R.drawable.ic_timer5)
+                                10 -> painterResource(R.drawable.ic_timer10)
                                 else -> painterResource(R.drawable.ic_timer)
                             },
                             contentDescription = "Configurar temporizador",
@@ -206,9 +175,9 @@ fun ZenModeOverlay(
                             modifier = Modifier.alpha(
                                 when (zenMode.timerDuration) {
                                     0 -> 0.3f
-                                    3 -> 0.5f   // ← AÑADIR: opacidad para 3 min
-                                    5 -> 0.7f   // ← CAMBIAR: de 0.6f a 0.7f
-                                    10 -> 1.0f  // ← CAMBIAR: de 0.8f a 1.0f
+                                    3 -> 0.5f
+                                    5 -> 0.7f
+                                    10 -> 1.0f
                                     else -> 0.3f
                                 }
                             )
@@ -229,7 +198,7 @@ fun ZenModeOverlay(
                 }
             }
 
-            // Botón para cambiar audio (derecha)
+            // Botón de audio (derecha)
             IconButton(
                 onClick = {
                     onAudioTrackChange(zenMode.audioTrack.next())

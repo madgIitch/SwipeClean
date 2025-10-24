@@ -8,7 +8,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.example.swipeclean.MediaItem
 import com.example.swipeclean.VideoPlayer
 
@@ -27,8 +30,9 @@ private fun isVideoItem(item: MediaItem): Boolean {
 fun MediaCard(
     item: MediaItem?,
     isZenMode: Boolean = false,
+    isPreview: Boolean = false,
     onSwipeEnabledChange: (Boolean) -> Unit = {},
-    onLongPress: () -> Unit = {},  // ← Nuevo callback
+    onLongPress: () -> Unit = {},
     modifier: Modifier = Modifier.fillMaxSize()
 ) {
     if (item == null) {
@@ -42,16 +46,30 @@ fun MediaCard(
 
     Box(modifier = modifier) {
         if (isVideo) {
-            Log.d(TAG_MEDIA, "Video mode → swipeEnabled=true")
-            onSwipeEnabledChange(true)
-            VideoPlayer(
-                uri = item.uri,
-                modifier = Modifier.fillMaxSize(),
-                autoPlay = true,
-                loop = true,
-                mute = false,
-                showControls = true
-            )
+            if (isPreview) {
+                // Mostrar solo miniatura usando Coil
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(item.uri)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Fit
+                )
+                onSwipeEnabledChange(true)
+            } else {
+                // Reproducir video normalmente
+                VideoPlayer(
+                    uri = item.uri,
+                    modifier = Modifier.fillMaxSize(),
+                    autoPlay = true,
+                    loop = true,
+                    mute = false,
+                    showControls = true
+                )
+                onSwipeEnabledChange(true)
+            }
         } else {
             Log.d(TAG_MEDIA, "Image mode (ZoomableImage)")
             ZoomableImage(

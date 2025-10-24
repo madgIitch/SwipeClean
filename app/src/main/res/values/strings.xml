@@ -3,4 +3,35 @@
     <string name="title_gallery">Galería</string>
     <string name="title_stats">Estadísticas</string>
 
+    <string-array name="zen_messages">
+        <item>Respira. Observa. Suelta la foto cuando estés listo.</item>
+        <item>Deja ir lo que ya no sirve.</item>
+        <item>Guarda solo lo que te inspira.</item>
+        <item>Cada decisión es un paso hacia la claridad.</item>
+        <item>Confía en tu intuición.</item>
+        <item>Menos es más.</item>
+        <item>Libera espacio, libera mente.</item>
+        <item>Lo simple también puede ser bello.</item>
+        <item>No todo lo que guardas te pertenece todavía.</item>
+        <item>Haz sitio para lo nuevo.</item>
+        <item>Suelta el ruido. Quédate con la esencia.</item>
+        <item>Cada swipe es una elección consciente.</item>
+        <item>La calma llega cuando dejas espacio para ella.</item>
+        <item>A veces limpiar también es recordar.</item>
+        <item>No tienes que conservarlo todo para que haya significado.</item>
+        <item>El orden exterior refleja tu orden interior.</item>
+        <item>Elimina sin prisa. Observa sin juicio.</item>
+        <item>Tu galería también merece respirar.</item>
+        <item>Desliza con intención, no con impulso.</item>
+        <item>El silencio visual también es arte.</item>
+        <item>Entre borrar y conservar hay un instante de claridad.</item>
+        <item>No acumules momentos, vive los que importan.</item>
+        <item>Suelta. No estás perdiendo, estás aligerando.</item>
+        <item>Cada foto que dejas ir abre un nuevo espacio mental.</item>
+        <item>Tu paz empieza en el carrete.</item>
+    </string-array>
+
+    <string name="zen_timer_finished_message">Tu sesión de limpieza ha terminado</string>
+
+
 </resources>

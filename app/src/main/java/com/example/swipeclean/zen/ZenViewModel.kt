@@ -43,7 +43,9 @@ class ZenViewModel(app: Application) : AndroidViewModel(app) {
                     volume = prefs[KEY_ZEN_VOLUME] ?: 1f,
                     hapticsIntensity = HapticsIntensity.valueOf(
                         prefs[KEY_ZEN_HAPTICS] ?: "MEDIUM"
-                    )
+                    ),
+                    timerDuration = prefs[KEY_ZEN_TIMER] ?: 0 // <-- Añadir esta línea
+
                 )
             }
         }
@@ -130,6 +132,5 @@ class ZenViewModel(app: Application) : AndroidViewModel(app) {
         }
         _timerProgress.value = 1f
 
-        // Aquí se enviará la notificación (ver paso 3)
     }
 }

@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">SwipeClean</string>
+    <string name="title_gallery">Gallery</string>
+    <string name="title_stats">Stadistics</string>
+
+    <string-array name="zen_messages">
+        <item>Breathe. Observe. Release the photo when you\'re ready.</item>
+        <item>Let go of what no longer serves you.</item>
+        <item>Keep only what inspires you.</item>
+        <item>Each decision is a step toward clarity.</item>
+        <item>Trust your intuition.</item>
+        <item>Less is more.</item>
+        <item>Free space, free mind.</item>
+        <item>Simple can also be beautiful.</item>
+        <item>Not everything you keep still belongs to you.</item>
+        <item>Make room for the new.</item>
+        <item>Release the noise. Keep the essence.</item>
+        <item>Each swipe is a conscious choice.</item>
+        <item>Calm comes when you make space for it.</item>
+        <item>Sometimes cleaning is also remembering.</item>
+        <item>You don\'t have to keep everything for it to have meaning.</item>
+        <item>Outer order reflects your inner order.</item>
+        <item>Delete without rush. Observe without judgment.</item>
+        <item>Your gallery also deserves to breathe.</item>
+        <item>Swipe with intention, not impulse.</item>
+        <item>Visual silence is also art.</item>
+        <item>Between delete and keep, there\'s a moment of clarity.</item>
+        <item>Don\'t accumulate moments, live the ones that matter.</item>
+        <item>Let go. You\'re not losing, you\'re lightening.</item>
+        <item>Each photo you release opens new mental space.</item>
+        <item>Your peace begins in the camera roll.</item>
+    </string-array>
+
+    <string name="zen_timer_finished_message">Your cleaning session has finished</string>
+
+
+</resources>

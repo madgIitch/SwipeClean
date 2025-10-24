@@ -146,12 +146,9 @@ fun CardScreen(vm: GalleryViewModel) {
     }
     // Monitorear finalización del temporizador
     LaunchedEffect(timerProgress) {
-        if (timerProgress >= 1f && zenMode.timerDuration > 0) {
+        if (timerProgress >= 1f) {  // Eliminar la condición zenMode.timerDuration > 0
             Log.d(TAG_UI, "Timer finished, showing notification")
             showTimerFinishedNotification(context)
-
-            // Opcional: desactivar Zen Mode automáticamente
-            // zenViewModel.toggleZenMode(false)
         }
     }
 
@@ -328,6 +325,7 @@ fun CardScreen(vm: GalleryViewModel) {
                                 MediaCard(
                                     item = next,
                                     isZenMode = zenMode.isEnabled,
+                                    isPreview = true,  // ← AÑADIR ESTO
                                     onSwipeEnabledChange = { /* No-op para preview */ }
                                 )
                             }
